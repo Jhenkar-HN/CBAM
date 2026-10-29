@@ -1,0 +1,16 @@
+# EUROPEAN COMMISSION & DELEGATION TO INDIA - CBAM OPERATOR FAQ
+# Document Title: CBAM Definitive Regime Guidance for Indian Industrial Exporters and MSMEs
+# Section Reference: Technical Guidance on Electricity Baselines and Audit Logs
+# Publication Date: 2026-01-10
+# Reference URL: https://ec.europa.eu/commission/presscorner/detail/en/qanda_24_cbam
+
+QUESTION 1: Which electricity grid emission factor should Indian manufacturers use for Scope 2 embedded emissions?
+Answer: Under the definitive CBAM regime, operators in India must calculate indirect emissions using the published CO2 baseline database from the Central Electricity Authority (CEA) of India, Version 19 or later, representing the weighted average operating/combined margin of the national grid (0.716 tCO2 per MWh). If power is sourced under a dedicated Power Purchase Agreement (PPA) with a direct physical transmission line from a renewable energy plant, the actual renewable emission factor (0.0 tCO2/MWh) may be claimed provided guarantees of origin or equivalent certifications are verified.
+
+QUESTION 2: What fuel combustion calculation methodology is recognized?
+Answer: The IPCC 2006 Tier 1 / Tier 2 combustion method must be applied:
+Emissions (tCO2) = Fuel Quantity * Net Calorific Value (GJ/unit) * Emission Factor (tCO2/GJ) * Oxidation Factor.
+Standard Indian furnace oil has an average NCV of 0.0402 GJ/litre and emission factor of 0.0774 tCO2/GJ. High-Speed Diesel has an average NCV of 0.0357 GJ/litre and emission factor of 0.0741 tCO2/GJ.
+
+QUESTION 3: What audit trails must small manufacturers maintain?
+Answer: Small manufacturers must preserve an immutable evidence chain for a minimum of 4 (four) years. This includes utility electricity invoices, weighbridge slips, supplier mill test certificates for wire rod, and fuel purchase vouchers. Any manual adjustments or human overrides of meter figures must record the original raw value, modified value, reviewer timestamp, and technical justification.

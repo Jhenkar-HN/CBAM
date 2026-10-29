@@ -1,0 +1,20 @@
+# COMMISSION IMPLEMENTING REGULATION (EU) 2025/2621 & 2026/1740
+# Subject: Rules for the application of Regulation (EU) 2023/956 as regards default values, fallback values, and data gap handling during the definitive period
+# Publication Date: 2025-10-20
+# Reference URL: https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32025R2621
+
+ARTICLE 4 - DEFAULT VALUES FOR PRECURSOR MATERIALS
+1. Where actual data on specific embedded emissions of precursor materials cannot be obtained from the supplier despite best efforts, the declarant or installation operator may temporarily rely on official EU default values published by the European Commission.
+2. For alloy steel wire rod produced in India (CN 7228 30), the official Commission default specific embedded emission value is established at 2.24 tCO2e per metric tonne.
+3. For non-alloy steel wire rod produced in India (CN 7213 10), the official default specific embedded emission value is 2.15 tCO2e per metric tonne.
+4. For crude steel semi-finished products (CN 7207), the default value is 1.95 tCO2e per metric tonne.
+
+ARTICLE 7 - MANDATORY POLICY MARKUP PENALTY FOR UNVERIFIED FALLBACK DATA
+1. To incentivize primary data collection and prevent carbon leakage, whenever an operator or importer uses official fallback default values in place of verified primary supplier emissions, a mandatory policy markup penalty shall be applied to the default value.
+2. The standard default markup penalty is 10.0% (ten percent). The adjusted specific embedded emission for the precursor shall be calculated as:
+SEE_fallback_penalized = SEE_default * (1 + 0.10).
+3. The resulting report must be clearly marked with the data quality classification "FALLBACK_DEFAULT" and disclosed to the competent national authority.
+
+ARTICLE 12 - THIRD-PARTY ACCREDITED VERIFICATION
+1. CBAM declarations submitted in the definitive regime must be accompanied by an emissions report verified by an accredited verifier under Commission Implementing Regulation (EU) 2024/2493.
+2. Internal decision-support calculations, software tools, and evidence ledgers serve solely to prepare auditable records and do not replace formal independent verification.

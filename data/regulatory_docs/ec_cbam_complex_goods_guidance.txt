@@ -1,0 +1,23 @@
+# EUROPEAN COMMISSION - DIRECTORATE-GENERAL TAXATION AND CUSTOMS UNION
+# Guidance document on CBAM implementation for installation operators outside the EU
+# Document Title: Sector Guidance on Iron and Steel Products - Complex Goods
+# Section Reference: Section 6.4 - Specific Rules for Steel Fasteners (CN 7318)
+# Publication Date: 2024-12-15
+# Reference URL: https://taxation-customs.ec.europa.eu/carbon-border-adjustment-mechanism_en
+
+1. DEFINITION OF COMPLEX GOODS AND PRECURSORS
+Under Article 3(28) of Regulation (EU) 2023/956, steel fasteners falling under CN code 7318 (screws, bolts, nuts, coach screws, screw hooks, rivets, cotters, cotter pins, washers) are classified as "complex goods". By definition, complex goods require the inclusion of embedded emissions from relevant precursor materials consumed during their manufacturing process.
+
+2. RELEVANT PRECURSORS FOR CN 7318
+For products falling under CN heading 7318, the mandatory precursor material is crude steel or semi-finished products, specifically:
+- CN 7213 / 7227: Bars and rods of iron, non-alloy or other alloy steel, hot-rolled, in irregularly wound coils (wire rod).
+- CN 7228: Other bars and rods of other alloy steel; hollow drill bars and rods.
+Installation operators must determine the specific embedded emissions of these precursor materials based on actual supplier data where available.
+
+3. INCLUSION OF INDIRECT EMISSIONS (DELTA_CN = 1)
+According to Annex II of Regulation (EU) 2023/956, iron and steel goods under CN 7318 are subject to the reporting of both direct emissions (Scope 1) and indirect emissions (Scope 2). The indirect emissions factor delta_CN is set to 1. Indirect emissions correspond to electricity consumed in the production process, calculated using the relevant grid or PPA emission factor.
+
+4. MULTI-PRODUCT MASS ALLOCATION RULES
+Where an installation produces multiple products on shared machinery or unmetered energy lines (e.g. annealing furnaces, cold-heading machines, phosphate coating lines), the operator shall apportion energy consumption using the mass allocation factor alpha_p:
+alpha_p = Net Production Quantity of Target Product Family (tonnes) / Total Facility Production Quantity Across All Lines (tonnes).
+Direct line inputs that are exclusively consumed by the target product line shall be attributed 100% without allocation.
