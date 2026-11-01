@@ -71,17 +71,32 @@ def generate_passport_csv(passport_data: Dict[str, Any], output_path: Optional[P
     writer.writerow(["SOURCE_STREAM", "RAW_VALUE", "RAW_UNIT", "EFFECTIVE_VALUE", "EFFECTIVE_UNIT", "WAS_OVERRIDDEN", "OVERRIDE_REASON", "FILE_NAME", "SHA256_HASH_DIGEST"])
 
     docs = passport_data.get("uploaded_documents", {})
+    overrides = passport_data.get("overrides") or {}
     if docs:
         for doc_hash, doc in docs.items():
             for f in doc.get("extracted_fields", []):
+                field_name = f.get("field_name", "")
+                raw_value = f.get("extracted_value", "")
+                raw_unit = f.get("unit", "")
+                override = overrides.get(f"{doc_hash}_{field_name}") or {}
+                if override:
+                    effective_value = override.get("override_value", raw_value)
+                    effective_unit = override.get("override_unit") or raw_unit
+                    was_overridden = "True"
+                    override_reason = override.get("override_reason") or "Human override"
+                else:
+                    effective_value = raw_value
+                    effective_unit = raw_unit
+                    was_overridden = "False"
+                    override_reason = "No override applied"
                 writer.writerow([
-                    f.get("field_name", ""),
-                    f.get("extracted_value", ""),
-                    f.get("unit", ""),
-                    f.get("extracted_value", ""),
-                    f.get("unit", ""),
-                    "False",
-                    "User Verified",
+                    field_name,
+                    raw_value,
+                    raw_unit,
+                    effective_value,
+                    effective_unit,
+                    was_overridden,
+                    override_reason,
                     doc.get("filename", ""),
                     doc_hash,
                 ])

@@ -4,6 +4,7 @@ import io
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -104,6 +105,16 @@ def generate_passport_pdf(passport_data: Dict[str, Any], output_path: Optional[P
     calc = passport_data.get("calculation", {})
     gen_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
+    raw_review_status = str(passport_data.get("review_status", "Draft")).strip() or "Draft"
+    normalized_review_status = raw_review_status.lower().replace("_", "-").replace(" ", "-")
+    review_status_label = (
+        "USER-CONFIRMED (Audit-Ready)"
+        if normalized_review_status == "user-confirmed"
+        else "EXPERT-REVIEWED (Audit-Ready)"
+        if normalized_review_status == "expert-reviewed"
+        else "DRAFT (Pending Reviewer Sign-off)"
+    )
+
     meta_table_data = [
         [
             Paragraph("<b>Exporting Company:</b>", body_style),
@@ -127,7 +138,7 @@ def generate_passport_pdf(passport_data: Dict[str, Any], output_path: Optional[P
             Paragraph("<b>Product Family:</b>", body_style),
             Paragraph(ws.get("target_product_family", "Steel Fasteners (CN 7318)"), body_style),
             Paragraph("<b>Review Status:</b>", body_style),
-            Paragraph("<b>USER-CONFIRMED (Audit-Ready)</b>", bold_cell_style),
+            Paragraph(f"<b>{escape(review_status_label)}</b>", bold_cell_style),
         ],
     ]
 
@@ -274,35 +285,56 @@ def generate_passport_pdf(passport_data: Dict[str, Any], output_path: Optional[P
             Paragraph("<b>Override Reason</b>", bold_cell_style),
             Paragraph("<b>Source File & Snippet Reference</b>", bold_cell_style),
         ],
-        [
-            Paragraph("Electricity (DHBVN)", body_style),
-            Paragraph("250,000 kWh", body_style),
-            Paragraph("250,000 kWh", body_style),
-            Paragraph("User Verified", body_style),
-            Paragraph("DHBVN_Bill.pdf [p. 1] (SHA-256: 7f8a9...)", body_style),
-        ],
-        [
-            Paragraph("Furnace Oil (IOCL)", body_style),
-            Paragraph("15,000 litres", body_style),
-            Paragraph("15,000 litres", body_style),
-            Paragraph("User Verified", body_style),
-            Paragraph("IOCL_Invoice.csv (SHA-256: 4b2c1...)", body_style),
-        ],
-        [
-            Paragraph("Precursor Wire Rod", body_style),
-            Paragraph("520.0 tonnes", body_style),
-            Paragraph("520.0 tonnes", body_style),
-            Paragraph("Test Certificate", body_style),
-            Paragraph("Mill_Cert.pdf [p. 1] (SHA-256: e8d31...)", body_style),
-        ],
-        [
-            Paragraph("Net Fastener Output", body_style),
-            Paragraph("500.0 tonnes", body_style),
-            Paragraph("500.0 tonnes", body_style),
-            Paragraph("Weighbridge Log", body_style),
-            Paragraph("Production.xlsx (SHA-256: 91a4f...)", body_style),
-        ],
     ]
+
+    overrides = passport_data.get("overrides") or {}
+    provenance_rows = []
+    for doc_hash, document in (passport_data.get("uploaded_documents") or {}).items():
+        for field in document.get("extracted_fields", []):
+            field_name = str(field.get("field_name", ""))
+            override = overrides.get(f"{doc_hash}_{field_name}") or {}
+            raw_value = f"{field.get('extracted_value', '')} {field.get('unit', '')}".strip()
+            if override:
+                effective_value = (
+                    f"{override.get('override_value', '')} "
+                    f"{override.get('override_unit') or field.get('unit', '')}"
+                ).strip()
+                override_reason = override.get("override_reason") or "Human override"
+            else:
+                effective_value = raw_value
+                override_reason = "No override"
+
+            page_reference = (
+                f" [p. {field.get('evidence_page')}]" if field.get("evidence_page") else ""
+            )
+            snippet = (field.get("evidence_snippet") or "").strip()
+            if len(snippet) > 90:
+                snippet = snippet[:87] + "..."
+            source_reference = (
+                f"{document.get('filename', 'document')}{page_reference} "
+                f"(SHA-256: {doc_hash[:12]}...)"
+            )
+            if snippet:
+                source_reference += f" - {snippet}"
+
+            provenance_rows.append([
+                Paragraph(escape(field_name), body_style),
+                Paragraph(escape(raw_value), body_style),
+                Paragraph(escape(effective_value), body_style),
+                Paragraph(escape(str(override_reason)), body_style),
+                Paragraph(escape(source_reference), body_style),
+            ])
+
+    if provenance_rows:
+        provenance_data.extend(provenance_rows)
+    else:
+        provenance_data.append([
+            Paragraph("No activity data attached", body_style),
+            Paragraph("-", body_style),
+            Paragraph("-", body_style),
+            Paragraph("-", body_style),
+            Paragraph("Upload source documents to populate this ledger.", body_style),
+        ])
     t_prov = Table(
         provenance_data,
         colWidths=[1.4 * inch, 1.0 * inch, 1.0 * inch, 1.5 * inch, 2.5 * inch],
