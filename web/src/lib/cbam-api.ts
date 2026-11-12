@@ -90,7 +90,7 @@ export interface FuelCombustionItem {
   unit: string;
   ncv?: number | null;
   ef?: number | null;
-  oxidation_factor: number;
+  oxidation_factor?: number; // backend default 1.0
   confidence_score?: number;
   is_shared_utility?: boolean;
 }

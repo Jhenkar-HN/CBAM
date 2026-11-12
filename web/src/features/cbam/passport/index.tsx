@@ -1,6 +1,13 @@
 ﻿import { useCallback, useEffect, useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Download, Loader2, RefreshCw } from 'lucide-react'
+import {
+  ArrowRight,
+  Circle,
+  ClipboardList,
+  Download,
+  Loader2,
+  RefreshCw,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -35,6 +42,65 @@ import { PageHeader } from '../components/page-header'
 import { StatusBadge } from '../components/status-badge'
 import { StepIndicator } from '../components/step-indicator'
 
+type StepRoute = '/workspace' | '/upload' | '/allocation'
+type MissingInput = { label: string; step: StepRoute }
+
+const STEP_NAMES: Record<StepRoute, string> = {
+  '/workspace': '1 · Workspace',
+  '/upload': '2 · Upload',
+  '/allocation': '4 · Allocation',
+}
+
+/** Inputs the operator still has to provide; shown as a checklist, not as a failure. */
+class MissingInputsError extends Error {
+  constructor(public readonly items: MissingInput[]) {
+    super(`Calculation needs actual records for: ${items.map((item) => item.label.toLowerCase()).join(', ')}.`)
+    this.name = 'MissingInputsError'
+  }
+}
+
+function MissingInputsCard({ items }: { items: MissingInput[] }) {
+  const groups = (Object.keys(STEP_NAMES) as StepRoute[])
+    .map((step) => ({ step, items: items.filter((item) => item.step === step) }))
+    .filter((group) => group.items.length > 0)
+  return (
+    <Card className='border-amber-300/60 bg-amber-50/60 dark:border-amber-500/30 dark:bg-amber-500/5'>
+      <CardHeader>
+        <CardTitle className='flex items-center gap-2'>
+          <ClipboardList className='size-5 text-amber-600 dark:text-amber-400' />
+          A few inputs are still needed
+        </CardTitle>
+        <CardDescription>
+          The passport is calculated only from your actual records. Complete
+          these items and it will calculate automatically.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className='grid gap-4 md:grid-cols-3'>
+        {groups.map((group) => (
+          <div key={group.step} className='rounded-lg border bg-card p-4'>
+            <div className='mb-3 flex items-center justify-between gap-2'>
+              <p className='text-sm font-semibold'>{STEP_NAMES[group.step]}</p>
+              <Button asChild size='sm' variant='outline' className='h-7'>
+                <Link to={group.step}>
+                  Open <ArrowRight className='size-3.5' />
+                </Link>
+              </Button>
+            </div>
+            <ul className='space-y-1.5'>
+              {group.items.map((item) => (
+                <li key={item.label} className='flex items-start gap-2 text-sm text-muted-foreground'>
+                  <Circle className='mt-1 size-2.5 shrink-0 text-amber-500' />
+                  {item.label}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
 function buildRequest(
   workspace: Workspace,
   allocation: Allocation,
@@ -61,26 +127,25 @@ function buildRequest(
   const target = Number(allocation.target_production_tonnes)
   const total = Number(allocation.total_facility_production_tonnes)
 
-  const missing = [
-    !workspace.company_name.trim() && 'company details',
-    !workspace.installation_id.trim() && 'installation details',
-    !workspace.cn_code.trim() && 'product CN code',
-    !electricity && 'uploaded electricity consumption',
-    !fuel && 'uploaded fuel consumption',
-    !precursor && 'uploaded precursor quantity',
-    !precursorSee && 'supplier-declared precursor SEE',
-    !(target > 0) && 'target production quantity',
-    !(total > 0) && 'total installation production quantity',
-    !workspace.fuel_name && 'fuel type recorded on the bill',
-    !workspace.precursor_cn_code && 'precursor CN code from the supplier record',
-    !workspace.precursor_material_name && 'precursor material name from the supplier record',
-    !workspace.precursor_country && 'precursor country of origin from the supplier record',
-    allocation.fuel_is_shared === null && 'fuel allocation basis',
-    allocation.electricity_is_shared === null && 'electricity allocation basis',
-  ].filter(Boolean)
-  if (missing.length) {
-    throw new Error(`Calculation needs actual records for: ${missing.join(', ')}.`)
-  }
+  const checks: [boolean, MissingInput][] = [
+    [!workspace.company_name.trim(), { label: 'Company details', step: '/workspace' }],
+    [!workspace.installation_id.trim(), { label: 'Installation details', step: '/workspace' }],
+    [!workspace.cn_code.trim(), { label: 'Product CN code', step: '/workspace' }],
+    [!workspace.fuel_name, { label: 'Fuel type recorded on the bill', step: '/workspace' }],
+    [!workspace.precursor_cn_code, { label: 'Precursor CN code from the supplier record', step: '/workspace' }],
+    [!workspace.precursor_material_name, { label: 'Precursor material name from the supplier record', step: '/workspace' }],
+    [!workspace.precursor_country, { label: 'Precursor country of origin', step: '/workspace' }],
+    [!electricity, { label: 'Electricity consumption from an uploaded record', step: '/upload' }],
+    [!fuel, { label: 'Fuel consumption from an uploaded record', step: '/upload' }],
+    [!precursor, { label: 'Precursor quantity from a supplier record', step: '/upload' }],
+    [!precursorSee, { label: 'Supplier-declared precursor SEE', step: '/upload' }],
+    [!(target > 0), { label: 'Target production quantity', step: '/allocation' }],
+    [!(total > 0), { label: 'Total installation production quantity', step: '/allocation' }],
+    [allocation.fuel_is_shared === null, { label: 'Fuel allocation basis', step: '/allocation' }],
+    [allocation.electricity_is_shared === null, { label: 'Electricity allocation basis', step: '/allocation' }],
+  ]
+  const missing = checks.filter(([isMissing]) => isMissing).map(([, item]) => item)
+  if (missing.length) throw new MissingInputsError(missing)
   if (target > total) throw new Error('Target production cannot exceed total installation production.')
   if (workspace.country.trim().toLowerCase() !== 'india') {
     throw new Error('Select a country with an applicable sourced grid factor. This pilot currently has a sourced factor for India only.')
@@ -200,22 +265,29 @@ export function PassportPage() {
   const calculation = useCbamStore((state) => state.calculation)
   const setCalculation = useCbamStore((state) => state.setCalculation)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<{ message: string; backend: boolean } | null>(null)
+  const [missing, setMissing] = useState<MissingInput[]>([])
   const [exporting, setExporting] = useState<'pdf' | 'csv' | null>(null)
 
   const run = useCallback(async () => {
-    setLoading(true)
     setError(null)
+    setMissing([])
+    let request: DeterministicCalculationRequest
     try {
-      const result = await calculate(
-        buildRequest(workspace, allocation, documents, overrides),
-        false,
-      )
-      setCalculation(result)
+      request = buildRequest(workspace, allocation, documents, overrides)
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : 'Calculation request failed.'
-      )
+      if (cause instanceof MissingInputsError) setMissing(cause.items)
+      else setError({ message: cause instanceof Error ? cause.message : 'Inputs are invalid.', backend: false })
+      return
+    }
+    setLoading(true)
+    try {
+      setCalculation(await calculate(request, false))
+    } catch (cause) {
+      setError({
+        message: cause instanceof Error ? cause.message : 'Calculation request failed.',
+        backend: true,
+      })
     } finally {
       setLoading(false)
     }
@@ -264,9 +336,19 @@ export function PassportPage() {
         <StepIndicator current={5} />
         <PageHeader
           title='Emissions Passport'
-          description={`${workspace.company_name} · ${workspace.installation_name} · CN ${workspace.cn_code}`}
+          description={
+            workspace.company_name.trim()
+              ? [
+                  workspace.company_name,
+                  workspace.installation_name,
+                  workspace.cn_code && `CN ${workspace.cn_code}`,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')
+              : 'Embedded-emissions summary with traceable inputs, deterministic calculations, and uncertainty ranges.'
+          }
         >
-          <Button variant='outline' onClick={() => void run()} disabled={loading}>
+          <Button variant='outline' onClick={() => void run()} disabled={loading || missing.length > 0}>
             {loading ? (
               <Loader2 className='size-4 animate-spin' />
             ) : (
@@ -280,17 +362,21 @@ export function PassportPage() {
           <Alert variant='destructive' className='mb-4'>
             <AlertTitle>Calculation unavailable</AlertTitle>
             <AlertDescription>
-              {error}
-              <span className='mt-1 block text-xs'>
-                Start the backend with{' '}
-                <code>uvicorn app.main:app --port 8000</code> and ensure it is
-                reachable at {API_URL}.
-              </span>
+              {error.message}
+              {error.backend && (
+                <span className='mt-1 block text-xs'>
+                  Check that the backend is running (
+                  <code>uvicorn app.main:app --port 8000</code>) and reachable
+                  at {API_URL}.
+                </span>
+              )}
             </AlertDescription>
           </Alert>
         )}
 
-        {!calculation ? (
+        {missing.length > 0 ? (
+          <MissingInputsCard items={missing} />
+        ) : !calculation ? (
           <Card>
             <CardContent className='flex flex-col items-center gap-3 py-12 text-sm text-muted-foreground'>
               {loading ? (

@@ -2,6 +2,8 @@
 
 import streamlit as st
 
+from frontend.ui import empty_state, page_header
+
 
 def _positive_number(raw: str, label: str) -> float:
     try:
@@ -14,35 +16,42 @@ def _positive_number(raw: str, label: str) -> float:
 
 
 def render_allocation_view() -> None:
-    st.subheader("Mass allocation & shared utility setup")
-    st.caption("Enter production totals from the reporting period. The allocation factor is target product output divided by total installation output.")
+    page_header(
+        "Step 4 of 5",
+        "Mass allocation & shared utilities",
+        "Enter production totals for the reporting period. The allocation factor αₚ is target product output divided by total installation output.",
+    )
 
     if not st.session_state.get("workspace"):
-        st.info("Save the company, installation, reporting period, and product details first.")
+        empty_state("🏭", "Workspace not set up yet", "Save the company, installation, reporting period, and product details in step 1 first.")
         return
 
     alloc = st.session_state.get("allocation_data", {})
-    target_text = st.text_input(
-        "Net production quantity of target product (tonnes)",
+    st.markdown('<div class="meta-label">Production quantities</div>', unsafe_allow_html=True)
+    qty_left, qty_right = st.columns(2)
+    target_text = qty_left.text_input(
+        "Net production of target product (tonnes)",
         value=str(alloc.get("target_production_tonnes", "")),
         placeholder="From your production record",
     )
-    total_text = st.text_input(
+    total_text = qty_right.text_input(
         "Total installation production (tonnes)",
         value=str(alloc.get("total_facility_production_tonnes", "")),
         placeholder="From your installation production record",
     )
+    st.markdown('<div class="meta-label" style="margin-top:8px">Utility record coverage</div>', unsafe_allow_html=True)
+    basis_left, basis_right = st.columns(2)
     allocation_basis = [None, "shared", "product_only"]
-    fuel_basis = st.selectbox(
+    fuel_basis = basis_left.selectbox(
         "Fuel record covers",
         allocation_basis,
-        index=allocation_basis.index(alloc["fuel_allocation_basis"]) if alloc.get("fuel_allocation_basis") in allocation_basis else 0,
+        index=allocation_basis.index(alloc.get("fuel_allocation_basis")) if alloc.get("fuel_allocation_basis") in allocation_basis else 0,
         format_func=lambda value: {None: "Select from your metering / invoice records", "shared": "Shared installation use", "product_only": "Target product line only"}[value],
     )
-    electricity_basis = st.selectbox(
+    electricity_basis = basis_right.selectbox(
         "Electricity record covers",
         allocation_basis,
-        index=allocation_basis.index(alloc["electricity_allocation_basis"]) if alloc.get("electricity_allocation_basis") in allocation_basis else 0,
+        index=allocation_basis.index(alloc.get("electricity_allocation_basis")) if alloc.get("electricity_allocation_basis") in allocation_basis else 0,
         format_func=lambda value: {None: "Select from your metering / invoice records", "shared": "Shared installation use", "product_only": "Target product line only"}[value],
     )
 
@@ -73,4 +82,4 @@ def render_allocation_view() -> None:
             "apply_allocation_to_shared_energy": fuel_basis == "shared" or electricity_basis == "shared",
             "alpha_p": target / total,
         }
-        st.success("Production quantities saved.")
+        st.success("Production quantities saved. Next: generate the passport in step 5.")

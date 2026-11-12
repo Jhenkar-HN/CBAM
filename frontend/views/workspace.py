@@ -6,11 +6,15 @@ import streamlit as st
 
 from app.db.database import SessionLocal
 from app.modules.calculation.factors import list_cn_codes
+from frontend.ui import page_header
 
 
 def render_workspace_view() -> None:
-    st.subheader("Workspace & product setup")
-    st.caption("Enter installation details and select the CN code that matches your exported product.")
+    page_header(
+        "Step 1 of 5",
+        "Workspace & product setup",
+        "Enter installation details and select the CN code that matches your exported product.",
+    )
 
     ws = st.session_state.get("workspace", {})
     with SessionLocal() as db:
@@ -19,10 +23,16 @@ def render_workspace_view() -> None:
     descriptions = {row["cn_code"]: row["description"] for row in cn_rows}
 
     with st.form("workspace_setup"):
-        company_name = st.text_input("Exporting company name", value=ws.get("company_name", ""))
-        installation_name = st.text_input("Installation / factory name", value=ws.get("installation_name", ""))
-        installation_id = st.text_input("Installation ID or UN/LOCODE", value=ws.get("installation_id", ""))
-        country = st.text_input("Country of origin", value=ws.get("country", ""), placeholder="Enter the actual country")
+        st.markdown('<div class="meta-label">Exporter & installation</div>', unsafe_allow_html=True)
+        left, right = st.columns(2)
+        with left:
+            company_name = st.text_input("Exporting company name", value=ws.get("company_name", ""), placeholder="e.g. as on your IEC certificate")
+            installation_id = st.text_input("Installation ID or UN/LOCODE", value=ws.get("installation_id", ""))
+        with right:
+            installation_name = st.text_input("Installation / factory name", value=ws.get("installation_name", ""))
+            country = st.text_input("Country of origin", value=ws.get("country", ""), placeholder="Enter the actual country")
+
+        st.markdown('<div class="meta-label" style="margin-top:10px">Product & reporting period</div>', unsafe_allow_html=True)
         cn_options = [""] + cn_codes
         old_code = ws.get("cn_code", "")
         selected_code = st.selectbox(
@@ -31,8 +41,11 @@ def render_workspace_view() -> None:
             index=cn_options.index(old_code) if old_code in cn_options else 0,
             format_func=lambda code: "Select a CN code" if not code else f"{code} · {descriptions.get(code, '')}",
         )
-        start_text = st.text_input("Reporting period start (YYYY-MM-DD)", value=str(ws.get("start_date", "")))
-        end_text = st.text_input("Reporting period end (YYYY-MM-DD)", value=str(ws.get("end_date", "")))
+        start_col, end_col = st.columns(2)
+        with start_col:
+            start_text = st.text_input("Reporting period start", value=str(ws.get("start_date", "")), placeholder="YYYY-MM-DD")
+        with end_col:
+            end_text = st.text_input("Reporting period end", value=str(ws.get("end_date", "")), placeholder="YYYY-MM-DD")
         save = st.form_submit_button("Save workspace", type="primary", use_container_width=True)
 
     if save:
@@ -68,4 +81,4 @@ def render_workspace_view() -> None:
             "requires_precursors": cn_row["requires_precursors"],
             "target_product_family": f"{descriptions[selected_code]} (CN {selected_code})",
         }
-        st.success("Workspace saved from the details you entered.")
+        st.success("Workspace saved. Next: upload your source records in step 2.")

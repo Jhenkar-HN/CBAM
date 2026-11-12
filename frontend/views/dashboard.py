@@ -17,7 +17,7 @@ from app.schemas.calculation import (
     PrecursorMaterialItem,
     ProductionAllocationInput,
 )
-from frontend.ui import inject_custom_css, status_pill
+from frontend.ui import empty_state, page_header, status_pill
 
 API_BASE_URL = "http://localhost:8000/api/v1"
 
@@ -162,13 +162,15 @@ def _render_confidence_band(uncertainty: dict, unit: str) -> None:
 
 
 def render_dashboard_view() -> None:
-    inject_custom_css()
-    st.title("Emissions Passport")
-    st.caption("Executive emissions summary with traceable inputs, deterministic calculations, and uncertainty ranges.")
+    page_header(
+        "Step 5 of 5",
+        "Emissions passport",
+        "Executive emissions summary with traceable inputs, deterministic calculations, and uncertainty ranges.",
+    )
 
     ws = st.session_state.get("workspace", {})
     if not ws.get("company_name") or not ws.get("cn_code"):
-        st.info("Complete and save the workspace before calculating.")
+        empty_state("🏭", "Workspace not set up yet", "Complete and save the workspace in step 1 before calculating.")
         return
     if str(ws.get("country", "")).strip().lower() != "india":
         st.info("The sourced grid-factor registry in this pilot covers India only. No calculation was run for this country.")
@@ -250,7 +252,7 @@ def render_dashboard_view() -> None:
     )
 
     metric_specs = [
-        ("Specific embedded emissions", f"{see:.4f}", "tCO₂e / tonne"),
+        ("Embedded emissions · SEE", f"{see:.4f}", "Specific embedded emissions, tCO₂e per tonne of product"),
         ("Scope 1 · direct", f"{float(calculation['allocated_scope1_direct_tco2']):,.2f}", "tCO₂"),
         ("Scope 2 · indirect", f"{float(calculation['allocated_scope2_indirect_tco2']):,.2f}", "tCO₂"),
         ("Precursor emissions", f"{float(calculation['precursor_emissions_tco2']):,.2f}", "tCO₂"),
@@ -280,7 +282,8 @@ def render_dashboard_view() -> None:
         breakdown[1].metric("Allocated Scope 1", f"{float(calculation['allocated_scope1_direct_tco2']):,.2f} tCO₂")
         breakdown[2].metric("Facility Scope 2", f"{float(calculation['facility_gross_scope2_tco2']):,.2f} tCO₂")
         breakdown[3].metric("Total embedded emissions", f"{float(calculation['total_embedded_emissions_tco2']):,.2f} tCO₂")
-        st.json(calculation.get("input_snapshot", {}))
+        st.markdown('<div class="meta-label" style="margin-top:12px">Input snapshot (JSON)</div>', unsafe_allow_html=True)
+        st.json(calculation.get("input_snapshot", {}), expanded=1)
 
     fallback_notes = calculation.get("fallback_notes") or []
     if fallback_notes or fallback:
