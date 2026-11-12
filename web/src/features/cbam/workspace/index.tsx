@@ -26,21 +26,11 @@ import { useCbamStore } from '@/stores/cbam-store'
 
 const CN_CODES = [
   '7318 15 82',
-  '7318 15 89',
-  '7318 16 90',
-  '7318 11 00',
-  '7318 21 00',
+  '7318 15 95',
+  '7318 16 00',
 ]
 
-const PRODUCT_FAMILIES = ['Steel Fasteners', 'Steel Wire Rod', 'Steel Bars']
-
-const PERIODS = [
-  'Q1 2026 (Jan-Mar)',
-  'Q2 2026 (Apr-Jun)',
-  'Q3 2026 (Jul-Sep)',
-  'Q4 2026 (Oct-Dec)',
-  '2026 (Annual)',
-]
+const PRODUCT_FAMILIES = ['Steel Fasteners']
 
 export function WorkspacePage() {
   const navigate = useNavigate()
@@ -52,11 +42,18 @@ export function WorkspacePage() {
     setForm((current) => ({ ...current, [key]: value }))
 
   const save = () => {
-    if (!form.company_name.trim() || !form.installation_id.trim()) {
-      toast.error('Company name and installation ID are required.')
+    if (
+      !form.company_name.trim() || !form.installation_name.trim() ||
+      !form.installation_id.trim() || !form.country.trim() ||
+      !form.cn_code.trim() || !form.target_product_family.trim() ||
+      !form.reporting_period.trim() || !form.fuel_name.trim() ||
+      !form.precursor_cn_code.trim() || !form.precursor_material_name.trim() ||
+      !form.precursor_country.trim()
+    ) {
+      toast.error('Complete the workspace fields using your actual installation and supplier records.')
       return
     }
-    setWorkspace(form)
+    setWorkspace({ ...form, includes_indirect: true })
     toast.success('Workspace saved.')
     void navigate({ to: '/upload' })
   }
@@ -87,7 +84,7 @@ export function WorkspacePage() {
                   id='company_name'
                   value={form.company_name}
                   onChange={(e) => update('company_name', e.target.value)}
-                  placeholder='Apex Fasteners Pvt Ltd'
+                  placeholder='Enter the exporting company name'
                 />
               </div>
               <div className='space-y-2'>
@@ -96,6 +93,7 @@ export function WorkspacePage() {
                   id='installation_name'
                   value={form.installation_name}
                   onChange={(e) => update('installation_name', e.target.value)}
+                  placeholder='Enter the factory or installation name'
                 />
               </div>
               <div className='space-y-2'>
@@ -104,6 +102,7 @@ export function WorkspacePage() {
                   id='installation_id'
                   value={form.installation_id}
                   onChange={(e) => update('installation_id', e.target.value)}
+                  placeholder='Enter the actual installation ID'
                 />
               </div>
               <div className='space-y-2'>
@@ -112,25 +111,16 @@ export function WorkspacePage() {
                   id='country'
                   value={form.country}
                   onChange={(e) => update('country', e.target.value)}
+                  placeholder='Enter the country of origin'
                 />
               </div>
               <div className='space-y-2'>
                 <Label>Reporting period</Label>
-                <Select
+                <Input
                   value={form.reporting_period}
-                  onValueChange={(value) => update('reporting_period', value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder='Select a period' />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PERIODS.map((period) => (
-                      <SelectItem key={period} value={period}>
-                        {period}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onChange={(e) => update('reporting_period', e.target.value)}
+                  placeholder='Enter the reporting period from your records'
+                />
               </div>
             </CardContent>
           </Card>
@@ -170,7 +160,7 @@ export function WorkspacePage() {
                   onValueChange={(value) => update('cn_code', value)}
                 >
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder='Select the actual product CN code' />
                   </SelectTrigger>
                   <SelectContent>
                     {CN_CODES.map((code) => (
@@ -180,6 +170,44 @@ export function WorkspacePage() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+              <div className='space-y-2'>
+                <Label>Fuel type shown on your fuel record</Label>
+                <Select
+                  value={form.fuel_name}
+                  onValueChange={(value) => update('fuel_name', value)}
+                >
+                  <SelectTrigger><SelectValue placeholder='Select the recorded fuel type' /></SelectTrigger>
+                  <SelectContent>
+                    {['Furnace Oil', 'Diesel (HSD)', 'Natural Gas', 'LPG'].map((fuel) => (
+                      <SelectItem key={fuel} value={fuel}>{fuel}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className='space-y-2'>
+                <Label>Precursor CN code from supplier record</Label>
+                <Input
+                  value={form.precursor_cn_code}
+                  onChange={(e) => update('precursor_cn_code', e.target.value)}
+                  placeholder='Enter the supplier material CN code'
+                />
+              </div>
+              <div className='space-y-2'>
+                <Label>Precursor material name from supplier record</Label>
+                <Input
+                  value={form.precursor_material_name}
+                  onChange={(e) => update('precursor_material_name', e.target.value)}
+                  placeholder='Enter the material name shown by the supplier'
+                />
+              </div>
+              <div className='space-y-2'>
+                <Label>Precursor country of origin</Label>
+                <Input
+                  value={form.precursor_country}
+                  onChange={(e) => update('precursor_country', e.target.value)}
+                  placeholder='Enter the origin shown in the supplier record'
+                />
               </div>
               <p className='text-xs text-muted-foreground'>
                 Scope 2 is included when the CN code requires indirect

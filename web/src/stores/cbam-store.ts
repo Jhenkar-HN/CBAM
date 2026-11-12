@@ -15,12 +15,17 @@ export type Workspace = {
   reporting_period: string
   reporting_period_id: number
   includes_indirect: boolean
+  fuel_name: string
+  precursor_cn_code: string
+  precursor_material_name: string
+  precursor_country: string
 }
 
 export type Allocation = {
-  target_production_tonnes: number
-  total_facility_production_tonnes: number
-  apply_allocation_to_shared_energy: boolean
+  target_production_tonnes: number | null
+  total_facility_production_tonnes: number | null
+  fuel_is_shared: boolean | null
+  electricity_is_shared: boolean | null
 }
 
 export type FieldOverride = {
@@ -57,21 +62,26 @@ type CbamState = {
 }
 
 export const DEFAULT_WORKSPACE: Workspace = {
-  company_name: 'Apex Fasteners Pvt Ltd',
-  installation_name: 'Apex Unit 1 - Cold Forging',
-  installation_id: 'IN-FDB-001',
-  country: 'India',
-  cn_code: '7318 15 82',
-  target_product_family: 'Steel Fasteners',
-  reporting_period: 'Q1 2026 (Jan-Mar)',
-  reporting_period_id: 1,
-  includes_indirect: true,
+  company_name: '',
+  installation_name: '',
+  installation_id: '',
+  country: '',
+  cn_code: '',
+  target_product_family: '',
+  reporting_period: '',
+  reporting_period_id: 0,
+  includes_indirect: false,
+  fuel_name: '',
+  precursor_cn_code: '',
+  precursor_material_name: '',
+  precursor_country: '',
 }
 
 export const DEFAULT_ALLOCATION: Allocation = {
-  target_production_tonnes: 500,
-  total_facility_production_tonnes: 625,
-  apply_allocation_to_shared_energy: true,
+  target_production_tonnes: null,
+  total_facility_production_tonnes: null,
+  fuel_is_shared: null,
+  electricity_is_shared: null,
 }
 
 export const overrideKey = (documentHash: string, fieldName: string) =>
@@ -124,7 +134,7 @@ export const useCbamStore = create<CbamState>()(
           reviewStatus: 'Draft',
         }),
     }),
-    { name: 'cbam-passport-store', version: 1 },
+    { name: 'cbam-passport-store-real-data-v2', version: 2 },
   ),
 )
 

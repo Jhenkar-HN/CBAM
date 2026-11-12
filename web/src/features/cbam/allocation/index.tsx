@@ -10,7 +10,13 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Main } from '@/components/layout/main'
 import { useCbamStore } from '@/stores/cbam-store'
 import { CbamTopBar } from '../components/cbam-top-bar'
@@ -22,8 +28,8 @@ export function AllocationPage() {
   const allocation = useCbamStore((state) => state.allocation)
   const setAllocation = useCbamStore((state) => state.setAllocation)
 
-  const target = Number(allocation.target_production_tonnes) || 0
-  const total = Number(allocation.total_facility_production_tonnes) || 0
+  const target = Number(allocation.target_production_tonnes ?? 0)
+  const total = Number(allocation.total_facility_production_tonnes ?? 0)
   const alpha = total > 0 ? Math.min(1, target / total) : 0
   const invalid = total > 0 && target > total
 
@@ -52,12 +58,11 @@ export function AllocationPage() {
                   id='target'
                   type='number'
                   step='any'
-                  value={allocation.target_production_tonnes}
-                  onChange={(event) =>
-                    setAllocation({
-                      target_production_tonnes: Number(event.target.value),
-                    })
-                  }
+                  value={allocation.target_production_tonnes ?? ''}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    setAllocation({ target_production_tonnes: value === '' ? null : Number(value) })
+                  }}
                 />
               </div>
               <div className='space-y-2'>
@@ -66,34 +71,38 @@ export function AllocationPage() {
                   id='total'
                   type='number'
                   step='any'
-                  value={allocation.total_facility_production_tonnes}
-                  onChange={(event) =>
-                    setAllocation({
-                      total_facility_production_tonnes: Number(
-                        event.target.value
-                      ),
-                    })
-                  }
+                  value={allocation.total_facility_production_tonnes ?? ''}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    setAllocation({ total_facility_production_tonnes: value === '' ? null : Number(value) })
+                  }}
                 />
               </div>
-              <div className='flex items-center justify-between gap-4 rounded-md border p-3 sm:col-span-2'>
-                <div className='space-y-0.5'>
-                  <Label htmlFor='shared-energy'>
-                    Apply allocation to shared utilities
-                  </Label>
-                  <p className='text-xs text-muted-foreground'>
-                    When off, fuel and electricity are treated as fully
-                    attributable to the target product.
-                  </p>
-                </div>
-                <Switch
-                  id='shared-energy'
-                  checked={allocation.apply_allocation_to_shared_energy}
-                  onCheckedChange={(checked) =>
-                    setAllocation({ apply_allocation_to_shared_energy: checked })
-                  }
-                />
-              </div>
+              {(['fuel', 'electricity'] as const).map((utility) => {
+                const key = utility === 'fuel' ? 'fuel_is_shared' : 'electricity_is_shared'
+                const value = allocation[key]
+                return (
+                  <div key={utility} className='space-y-2'>
+                    <Label>{utility === 'fuel' ? 'Fuel record covers' : 'Electricity record covers'}</Label>
+                    <Select
+                      value={value == null ? '' : value ? 'shared' : 'product'}
+                      onValueChange={(choice) =>
+                        setAllocation(
+                          utility === 'fuel'
+                            ? { fuel_is_shared: choice === 'shared' }
+                            : { electricity_is_shared: choice === 'shared' }
+                        )
+                      }
+                    >
+                      <SelectTrigger><SelectValue placeholder='Select from your meter or invoice records' /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value='shared'>Shared installation use</SelectItem>
+                        <SelectItem value='product'>Target product line only</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )
+              })}
             </CardContent>
           </Card>
 
@@ -126,6 +135,14 @@ export function AllocationPage() {
         <div className='mt-6 flex justify-end gap-2'>
           <Button
             onClick={() => {
+              if (allocation.fuel_is_shared === null || allocation.electricity_is_shared === null) {
+                toast.error('Choose the allocation basis shown by both utility records.')
+                return
+              }
+              if (!(target > 0) || !(total > 0) || invalid) {
+                toast.error('Enter valid target and total production quantities.')
+                return
+              }
               toast.success('Allocation saved.')
               void navigate({ to: '/passport' })
             }}

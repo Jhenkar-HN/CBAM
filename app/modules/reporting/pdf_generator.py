@@ -118,25 +118,25 @@ def generate_passport_pdf(passport_data: Dict[str, Any], output_path: Optional[P
     meta_table_data = [
         [
             Paragraph("<b>Exporting Company:</b>", body_style),
-            Paragraph(ws.get("company_name", "Apex Fasteners Pvt Ltd"), body_style),
+            Paragraph(escape(str(ws.get("company_name") or "")), body_style),
             Paragraph("<b>Report Date:</b>", body_style),
             Paragraph(gen_time, body_style),
         ],
         [
             Paragraph("<b>Installation / Plant:</b>", body_style),
-            Paragraph(f"{ws.get('installation_name', 'Unit 1')} ({ws.get('installation_id', 'IN-FDB-001')})", body_style),
+            Paragraph(escape(f"{ws.get('installation_name') or ''} ({ws.get('installation_id') or ''})"), body_style),
             Paragraph("<b>Country of Origin:</b>", body_style),
-            Paragraph(ws.get("country", "India"), body_style),
+            Paragraph(escape(str(ws.get("country") or "")), body_style),
         ],
         [
             Paragraph("<b>Target CN Code:</b>", body_style),
-            Paragraph(f"<b>{ws.get('cn_code', '7318 15 82')}</b>", bold_cell_style),
+            Paragraph(f"<b>{escape(str(ws.get('cn_code') or ''))}</b>", bold_cell_style),
             Paragraph("<b>Reporting Period:</b>", body_style),
-            Paragraph(str(ws.get("reporting_period", "2026 (Annual)")), body_style),
+            Paragraph(escape(str(ws.get("reporting_period") or "")), body_style),
         ],
         [
             Paragraph("<b>Product Family:</b>", body_style),
-            Paragraph(ws.get("target_product_family", "Steel Fasteners (CN 7318)"), body_style),
+            Paragraph(escape(str(ws.get("target_product_family") or "")), body_style),
             Paragraph("<b>Review Status:</b>", body_style),
             Paragraph(f"<b>{escape(review_status_label)}</b>", bold_cell_style),
         ],
@@ -179,14 +179,14 @@ def generate_passport_pdf(passport_data: Dict[str, Any], output_path: Optional[P
     # 4. Embedded Emissions Summary Box (SEE)
     story.append(Paragraph("1. Specific Embedded Emissions (SEE) Summary", section_heading))
 
-    see_val = calc.get("specific_embedded_emissions_see", 2.2851)
-    alloc_scope1 = calc.get("allocated_scope1_direct_tco2", 37.3378)
-    alloc_scope2 = calc.get("allocated_scope2_indirect_tco2", 143.2000)
-    precursor_val = calc.get("precursor_emissions_tco2", 962.0000)
-    total_embedded = calc.get("total_embedded_emissions_tco2", 1142.5378)
-    target_tonnes = calc.get("net_target_production_tonnes", 500.0)
-    alpha_p = calc.get("allocation_factor_alpha", 0.80)
-    quality = calc.get("data_quality_rating", "ACTUAL_PRIMARY")
+    see_val = calc["specific_embedded_emissions_see"]
+    alloc_scope1 = calc["allocated_scope1_direct_tco2"]
+    alloc_scope2 = calc["allocated_scope2_indirect_tco2"]
+    precursor_val = calc["precursor_emissions_tco2"]
+    total_embedded = calc["total_embedded_emissions_tco2"]
+    target_tonnes = calc["net_target_production_tonnes"]
+    alpha_p = calc["allocation_factor_alpha"]
+    quality = calc["data_quality_rating"]
 
     summary_table_data = [
         [
@@ -198,14 +198,14 @@ def generate_passport_pdf(passport_data: Dict[str, Any], output_path: Optional[P
         ],
         [
             Paragraph("Direct Scope 1 (Furnace Oil / Fuel)", body_style),
-            Paragraph(f"{calc.get('facility_gross_scope1_tco2', 46.6722):.2f} tCO2", body_style),
+            Paragraph(f"{calc['facility_gross_scope1_tco2']:.2f} tCO2", body_style),
             Paragraph(f"alpha_p = {alpha_p:.4f}", body_style),
             Paragraph(f"{alloc_scope1:.4f} tCO2", body_style),
             Paragraph(f"{alloc_scope1 / target_tonnes:.4f}", body_style),
         ],
         [
             Paragraph("Indirect Scope 2 (Grid Electricity)", body_style),
-            Paragraph(f"{calc.get('facility_gross_scope2_tco2', 179.0):.2f} tCO2", body_style),
+            Paragraph(f"{calc['facility_gross_scope2_tco2']:.2f} tCO2", body_style),
             Paragraph(f"alpha_p = {alpha_p:.4f} (delta=1)", body_style),
             Paragraph(f"{alloc_scope2:.4f} tCO2", body_style),
             Paragraph(f"{alloc_scope2 / target_tonnes:.4f}", body_style),
@@ -244,22 +244,28 @@ def generate_passport_pdf(passport_data: Dict[str, Any], output_path: Optional[P
     story.append(Spacer(1, 10))
 
     # 5. Monte Carlo Statistical Uncertainty Box
-    unc = calc.get("uncertainty", {})
-    p5 = unc.get("p5", see_val * 0.94)
-    p50 = unc.get("p50", see_val)
-    p95 = unc.get("p95", see_val * 1.06)
+    unc = calc.get("uncertainty") or {}
+    p5 = unc.get("p5")
+    p50 = unc.get("p50")
+    p95 = unc.get("p95")
+    interval_text = f"90% [{p5:.4f} - {p95:.4f}]" if p5 is not None and p95 is not None else "Not available"
+    percentile_text = (
+        [f"{p5:.4f}", f"{p50:.4f}", f"{p95:.4f}"]
+        if p5 is not None and p50 is not None and p95 is not None
+        else ["Not available", "Not available", "Not available"]
+    )
 
     story.append(Paragraph("2. Uncertainty Quantification & Data Quality Rating", section_heading))
     unc_data = [
         [
             Paragraph(f"<b>Data Quality Rating:</b> {quality}", bold_cell_style),
-            Paragraph(f"<b>Monte Carlo Iterations:</b> {unc.get('iterations', 5000):,}", body_style),
-            Paragraph(f"<b>Confidence Interval:</b> 90% [{p5:.4f} - {p95:.4f}]", body_style),
+            Paragraph(f"<b>Monte Carlo Iterations:</b> {unc.get('iterations', 'Not available')}", body_style),
+            Paragraph(f"<b>Confidence Interval:</b> {interval_text}", body_style),
         ],
         [
-            Paragraph(f"<b>P5 (Conservative Lower Bound):</b> {p5:.4f} tCO2e/t", body_style),
-            Paragraph(f"<b>P50 (Simulated Median):</b> {p50:.4f} tCO2e/t", bold_cell_style),
-            Paragraph(f"<b>P95 (Conservative Upper Bound):</b> {p95:.4f} tCO2e/t", body_style),
+            Paragraph(f"<b>P5 (Conservative Lower Bound):</b> {percentile_text[0]} tCO2e/t", body_style),
+            Paragraph(f"<b>P50 (Simulated Median):</b> {percentile_text[1]} tCO2e/t", bold_cell_style),
+            Paragraph(f"<b>P95 (Conservative Upper Bound):</b> {percentile_text[2]} tCO2e/t", body_style),
         ],
     ]
     t_unc = Table(unc_data, colWidths=[2.5 * inch, 2.4 * inch, 2.5 * inch])
@@ -365,19 +371,14 @@ def generate_passport_pdf(passport_data: Dict[str, Any], output_path: Optional[P
         for doc_hash, doc_info in list(docs_ledger.items())[:5]:
             ledger_rows.append([
                 Paragraph(doc_info.get("filename", "document.pdf"), body_style),
-                Paragraph(f"{doc_info.get('file_size_bytes', 1024) / 1024:.1f} KB", body_style),
+                Paragraph(f"{doc_info['file_size_bytes'] / 1024:.1f} KB", body_style),
                 Paragraph(f"<font face='Courier' size='7'>{doc_hash}</font>", body_style),
             ])
     else:
         ledger_rows.append([
-            Paragraph("DHBVN_Electricity_Oct2026.pdf", body_style),
-            Paragraph("142.5 KB", body_style),
-            Paragraph("<font face='Courier' size='7'>57899e573e33a04fec4c0847b357e3e0cee07592dac1caf96ff452f519a927c9</font>", body_style),
-        ])
-        ledger_rows.append([
-            Paragraph("Steel_Wire_Rod_Mill_Cert.pdf", body_style),
-            Paragraph("218.0 KB", body_style),
-            Paragraph("<font face='Courier' size='7'>edc6a376c7bc7a3b0b700e0c66d994c777f581dc4139069b55de4e2ac5cc4dab</font>", body_style),
+            Paragraph("No source documents uploaded", body_style),
+            Paragraph("", body_style),
+            Paragraph("", body_style),
         ])
 
     t_ledger = Table(ledger_rows, colWidths=[2.2 * inch, 0.9 * inch, 4.3 * inch])

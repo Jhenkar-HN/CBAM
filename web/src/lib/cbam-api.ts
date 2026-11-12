@@ -69,7 +69,7 @@ export interface HumanOverrideRequest {
   override_value: number;
   override_unit?: string | null;
   override_reason: string;
-  user_id?: string;
+  user_id: string;
 }
 
 export interface HumanOverrideResponse {
@@ -88,8 +88,8 @@ export interface FuelCombustionItem {
   fuel_name: string;
   quantity: number;
   unit: string;
-  ncv: number;
-  ef: number;
+  ncv?: number | null;
+  ef?: number | null;
   oxidation_factor: number;
   confidence_score?: number;
   is_shared_utility?: boolean;
@@ -99,7 +99,7 @@ export interface ElectricityConsumptionItem {
   source_name: string;
   consumed_quantity: number;
   unit: string;
-  grid_ef_tco2_per_mwh: number;
+  grid_ef_tco2_per_mwh?: number | null;
   confidence_score?: number;
   is_shared_utility?: boolean;
 }
@@ -111,6 +111,7 @@ export interface PrecursorMaterialItem {
   embedded_see_tco2_per_tonne?: number | null;
   source_type?: string;
   cn_code?: string;
+  country_of_origin?: string;
   confidence_score?: number;
   is_fallback?: boolean;
   fallback_markup_pct?: number;
@@ -166,7 +167,8 @@ export interface DeterministicCalculationResult {
 export interface RAGCitation {
   document_title: string;
   section_reference: string;
-  publication_year: number;
+  publication_year: number | null;
+  source_url: string | null;
   excerpt: string;
   score: number;
 }
@@ -212,12 +214,13 @@ export async function checkHealth(): Promise<{ status: string; version: string }
 
 export function uploadDocument(
   file: File,
-  workspaceId = "default_workspace",
+  workspaceId: string,
 ): Promise<DocumentExtractionResult> {
   const form = new FormData();
   form.append("file", file);
+  form.append("workspace_id", workspaceId);
   return request<DocumentExtractionResult>(
-    `/documents/upload?workspace_id=${encodeURIComponent(workspaceId)}`,
+    "/documents/upload",
     { method: "POST", body: form },
   );
 }

@@ -132,7 +132,9 @@ def run_monte_carlo_simulation(
         else:
             sim_mwh = sample_truncated_normal(mwh, elec.confidence_score, iterations)
 
-        grid_ef = elec.grid_ef_tco2_per_mwh or 0.716
+        grid_ef = elec.grid_ef_tco2_per_mwh
+        if grid_ef is None or grid_ef <= 0:
+            raise ValueError(f"Missing grid emission factor for electricity source '{elec.source_name}'.")
         # Grid factor carries slight regional variance (+/- 5% triangular)
         sim_grid_ef = sample_triangular_fallback(grid_ef, iterations, spread=0.05)
 
@@ -153,13 +155,14 @@ def run_monte_carlo_simulation(
         is_fallback = prec.is_fallback or prec.source_type == "eu_default"
         see_val = prec.embedded_see_tco2_per_tonne
 
-        if is_fallback or see_val is None or see_val <= 0:
+        if is_fallback:
+            if see_val is None or see_val <= 0:
+                raise ValueError(f"Missing official fallback SEE for precursor '{prec.material_name}'.")
             # Fallback default factor -> Triangular distribution with +/- 20% policy bounds
-            base_default = see_val or 2.24
-            sim_see = sample_triangular_fallback(base_default, iterations, spread=0.20)
-            markup_multiplier = 1.0 + ((prec.fallback_markup_pct or 10.0) / 100.0)
-            sim_see = sim_see * markup_multiplier
+            sim_see = sample_triangular_fallback(see_val, iterations, spread=0.20)
         else:
+            if see_val is None or see_val <= 0:
+                raise ValueError(f"Missing supplier SEE for precursor '{prec.material_name}'.")
             # Supplier actual value with test certificate -> Truncated normal
             sim_see = sample_truncated_normal(see_val, prec.confidence_score, iterations)
 

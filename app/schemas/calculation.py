@@ -10,46 +10,46 @@ class DataQualityRating(str, Enum):
 
 
 class FuelCombustionItem(BaseModel):
-    fuel_name: str = Field(..., json_schema_extra={"example": "Furnace Oil"})
-    quantity: float = Field(..., gt=0, json_schema_extra={"example": 15000.0})
-    unit: str = Field(..., json_schema_extra={"example": "litre"})
-    ncv: Optional[float] = Field(None, gt=0, description="Net Calorific Value in GJ per physical unit", json_schema_extra={"example": 0.0402})
-    ncv_unit: Optional[str] = Field(default="GJ/unit", json_schema_extra={"example": "GJ/litre"})
-    ef: Optional[float] = Field(None, gt=0, description="Emission factor in tCO2 per GJ", json_schema_extra={"example": 0.0774})
-    ef_unit: Optional[str] = Field(default="tCO2/GJ", json_schema_extra={"example": "tCO2/GJ"})
+    fuel_name: str
+    quantity: float = Field(..., gt=0)
+    unit: str
+    ncv: Optional[float] = Field(None, gt=0, description="Net Calorific Value in GJ per physical unit")
+    ncv_unit: Optional[str] = None
+    ef: Optional[float] = Field(None, gt=0, description="Emission factor in tCO2 per GJ")
+    ef_unit: Optional[str] = None
     oxidation_factor: float = Field(default=1.0, ge=0.0, le=1.0)
     confidence_score: float = Field(default=0.95, ge=0.1, le=1.0)
     is_shared_utility: bool = Field(default=True, description="Whether this fuel is consumed across shared facility utilities")
 
 
 class ElectricityConsumptionItem(BaseModel):
-    source_name: str = Field(default="State Grid / PPA", json_schema_extra={"example": "DHBVN Industrial Grid"})
-    consumed_quantity: float = Field(..., ge=0, json_schema_extra={"example": 250000.0})
-    unit: str = Field(default="kWh", json_schema_extra={"example": "kWh"})
-    grid_ef_tco2_per_mwh: Optional[float] = Field(None, gt=0, description="Grid emission factor in tCO2/MWh", json_schema_extra={"example": 0.716})
+    source_name: str
+    consumed_quantity: float = Field(..., ge=0)
+    unit: str
+    grid_ef_tco2_per_mwh: Optional[float] = Field(None, gt=0, description="Grid emission factor in tCO2/MWh")
     confidence_score: float = Field(default=0.95, ge=0.1, le=1.0)
     is_shared_utility: bool = Field(default=True, description="Whether electricity is consumed across shared facility")
 
 
 class PrecursorMaterialItem(BaseModel):
-    material_name: str = Field(..., json_schema_extra={"example": "Steel Wire Rod (Crude Steel)"})
-    consumed_quantity: float = Field(..., gt=0, json_schema_extra={"example": 520.0})
-    unit: str = Field(default="tonne", json_schema_extra={"example": "tonne"})
-    embedded_see_tco2_per_tonne: Optional[float] = Field(None, ge=0, description="Specific Embedded Emissions of precursor (tCO2/t)", json_schema_extra={"example": 1.85})
-    source_type: str = Field(default="supplier_actual", json_schema_extra={"example": "supplier_actual or eu_default"})
-    cn_code: Optional[str] = Field(default="7228 30", json_schema_extra={"example": "7228 30"})
-    country_of_origin: str = Field(default="IN", json_schema_extra={"example": "IN"})
+    material_name: str
+    consumed_quantity: float = Field(..., gt=0)
+    unit: str
+    embedded_see_tco2_per_tonne: Optional[float] = Field(None, ge=0, description="Specific Embedded Emissions of precursor (tCO2/t)")
+    source_type: str = "supplier_actual"
+    cn_code: Optional[str] = None
+    country_of_origin: Optional[str] = None
     confidence_score: float = Field(default=0.90, ge=0.1, le=1.0)
     is_fallback: bool = Field(default=False, description="Flag indicating if official fallback default was applied")
-    fallback_markup_pct: float = Field(default=0.0, description="Mandatory EU default penalty markup percentage e.g. 10.0 for 10%")
+    fallback_markup_pct: Optional[float] = Field(default=None, description="Applicable official fallback markup percentage, with regulation and reporting year recorded")
 
 
 class ProductionAllocationInput(BaseModel):
-    target_product_family: str = Field(..., json_schema_extra={"example": "Steel Fasteners (CN 7318 15 82)"})
-    target_production_quantity: float = Field(..., gt=0, description="Net production volume of target goods", json_schema_extra={"example": 500.0})
-    target_production_unit: str = Field(default="tonne", json_schema_extra={"example": "tonne"})
-    total_facility_production_quantity: float = Field(..., gt=0, description="Total plant production across all lines", json_schema_extra={"example": 625.0})
-    total_facility_production_unit: str = Field(default="tonne", json_schema_extra={"example": "tonne"})
+    target_product_family: str
+    target_production_quantity: float = Field(..., gt=0, description="Net production volume of target goods")
+    target_production_unit: str
+    total_facility_production_quantity: float = Field(..., gt=0, description="Total plant production across all lines")
+    total_facility_production_unit: str
     scrap_quantity: float = Field(default=0.0, ge=0)
     scrap_unit: str = Field(default="tonne")
 
@@ -65,7 +65,7 @@ class UncertaintyDistributionResult(BaseModel):
 
 class DeterministicCalculationRequest(BaseModel):
     reporting_period_id: int
-    cn_code: str = Field(..., json_schema_extra={"example": "7318 15 82"})
+    cn_code: str
     production: ProductionAllocationInput
     fuels: List[FuelCombustionItem] = Field(default_factory=list)
     process_emissions_tco2: float = Field(default=0.0, ge=0)

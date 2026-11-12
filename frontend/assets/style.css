@@ -12,8 +12,8 @@
   --header: rgba(248, 250, 252, .96);
 }
 
-[data-testid="stAppViewContainer"], .stApp { background: var(--canvas); color: var(--slate); }
-[data-testid="stHeader"] { background: var(--header); }
+[data-testid="stAppViewContainer"], [data-testid="stMain"], .stApp, .main, .block-container { background-color: var(--canvas) !important; color: var(--slate); }
+[data-testid="stHeader"] { background: var(--header) !important; }
 [data-testid="stSidebar"], [data-testid="stSidebar"] > div, [data-testid="stSidebarContent"] { background: var(--sidebar) !important; border-right: 1px solid var(--line); }
 [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
 [data-testid="stSidebar"] [data-testid="stText"],

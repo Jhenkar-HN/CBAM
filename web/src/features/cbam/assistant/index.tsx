@@ -48,7 +48,7 @@ export function AssistantPage() {
   }
 
   const guardrail =
-    result?.answer.toLowerCase().includes('information not found') ?? false
+    result?.answer.toLowerCase().includes('no official regulatory source') ?? false
 
   return (
     <>
@@ -56,7 +56,7 @@ export function AssistantPage() {
       <Main>
         <PageHeader
           title='Regulatory assistant'
-          description='Answers are grounded in the indexed European Commission CBAM material and cite the exact section. Unsupported questions are refused rather than guessed.'
+          description='Searches the configured source documents and returns retrieved passages with their recorded source details.'
         >
           <StatusBadge label={`CN ${cnCode}`} variant='neutral' />
         </PageHeader>
@@ -172,8 +172,18 @@ export function AssistantPage() {
                         </div>
                         <p className='text-xs text-muted-foreground'>
                           {citation.section_reference} ·{' '}
-                          {citation.publication_year}
+                          {citation.publication_year ?? 'Publication year not recorded'}
                         </p>
+                        {citation.source_url && (
+                          <a
+                            className='mt-1 block text-xs text-primary underline'
+                            href={citation.source_url}
+                            target='_blank'
+                            rel='noreferrer'
+                          >
+                            Open source document
+                          </a>
+                        )}
                         <blockquote className='mt-2 border-s-2 ps-3 text-xs italic'>
                           {citation.excerpt}
                         </blockquote>

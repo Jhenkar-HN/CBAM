@@ -18,8 +18,8 @@ import { type SidebarData } from '../types'
 
 export const sidebarData: SidebarData = {
   user: {
-    name: 'Plant Manager',
-    email: 'plant.manager@example.com',
+    name: 'Workspace user',
+    email: '',
     avatar: '/avatars/shadcn.jpg',
   },
   teams: [

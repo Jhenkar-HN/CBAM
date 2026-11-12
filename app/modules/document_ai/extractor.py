@@ -104,7 +104,7 @@ def mock_llm_schema_extraction(pages_data: List[dict], filename: str) -> List[Ex
 
     # 3. Precursor Material (Steel Wire Rod / Bars)
     precursor_match = re.search(
-        r'(?:wire\s*rod|raw\s*material|precursor|steel\s*bar)[\w\s:=-]*?(\d+[\d,]*\.?\d*)\s*(tonnes|MT|kg)',
+        r'(?:wire\s*rod|raw\s*material|precursor|steel\s*bar)[\w\s:.,\-/()=]*?(\d+[\d,]*\.?\d*)\s*(tonnes|MT|kg)',
         combined_text,
         re.IGNORECASE,
     )
@@ -119,6 +119,25 @@ def mock_llm_schema_extraction(pages_data: List[dict], filename: str) -> List[Ex
                 confidence_score=0.90,
                 evidence_page=1,
                 evidence_snippet=find_snippet_context(combined_text, precursor_match.group(0)),
+                field_category="precursor",
+            )
+        )
+
+    # Supplier-declared specific embedded emissions for a precursor.
+    precursor_see_match = re.search(
+        r'(?:(?:specific\s+embedded\s+emissions|embedded\s+emissions|supplier_specific_emissions|precursor\s+SEE|\bSEE)[\w\s:.,\-/()=]*?)?(\d+[\d,]*\.?\d*)\s*(t\s*CO2e?\s*/\s*(?:t|tonne))',
+        combined_text,
+        re.IGNORECASE,
+    )
+    if precursor_see_match:
+        candidates.append(
+            ExtractedFieldCandidate(
+                field_name="precursor_see",
+                extracted_value=float(precursor_see_match.group(1).replace(',', '')),
+                unit="tCO2/t",
+                confidence_score=0.90,
+                evidence_page=1,
+                evidence_snippet=find_snippet_context(combined_text, precursor_see_match.group(0)),
                 field_category="precursor",
             )
         )
@@ -159,4 +178,5 @@ def run_document_ai_extraction(file_bytes: bytes, filename: str) -> DocumentExtr
         filename=filename,
         page_count=len(pages_data),
         extracted_fields=extracted_fields,
+        raw_text_by_page=pages_data,
     )

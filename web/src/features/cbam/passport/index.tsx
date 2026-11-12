@@ -35,49 +35,56 @@ import { PageHeader } from '../components/page-header'
 import { StatusBadge } from '../components/status-badge'
 import { StepIndicator } from '../components/step-indicator'
 
-const FUEL = {
-  fuel_name: 'Furnace Oil',
-  unit: 'litre',
-  ncv: 0.0402,
-  ef: 0.0774,
-  oxidation_factor: 1,
-}
-
-const GRID_EF = 0.716
-
 function buildRequest(
   workspace: Workspace,
   allocation: Allocation,
   documents: Record<string, DocumentExtractionResult>,
   overrides: Record<string, FieldOverride>
 ): DeterministicCalculationRequest {
-  const quantities = { electricity: 250000, fuel: 15000, precursor: 520 }
-  const confidences = { electricity: 0.96, fuel: 0.95, precursor: 0.95 }
-
-  for (const document of Object.values(documents)) {
-    for (const field of document.extracted_fields) {
+  const fields = Object.values(documents).flatMap((document) =>
+    document.extracted_fields.map((field) => {
       const override = overrides[overrideKey(document.document_hash, field.field_name)]
-      const value = Number(override?.override_value ?? field.extracted_value)
-      if (!Number.isFinite(value)) continue
-      const name = field.field_name.toLowerCase()
-      if (name.includes('electricity')) {
-        quantities.electricity = Math.max(0, value)
-        confidences.electricity = field.confidence_score
-      } else if (name.includes('furnace') || name.includes('fuel')) {
-        quantities.fuel = Math.max(0.001, value)
-        confidences.fuel = field.confidence_score
-      } else if (name.includes('precursor')) {
-        quantities.precursor = Math.max(0.001, value)
-        confidences.precursor = field.confidence_score
+      return {
+        name: field.field_name.toLowerCase(),
+        value: Number(override?.override_value ?? field.extracted_value),
+        unit: override?.override_unit || field.unit,
+        confidence: field.confidence_score,
       }
-    }
-  }
-
-  const target = Number(allocation.target_production_tonnes) || 500
-  const total = Math.max(
-    target,
-    Number(allocation.total_facility_production_tonnes) || 625
+    })
   )
+  const first = (predicate: (name: string) => boolean) =>
+    fields.find((field) => predicate(field.name) && Number.isFinite(field.value))
+  const electricity = first((name) => name.includes('electricity'))
+  const fuel = first((name) => name.includes('fuel') || name.includes('furnace_oil') || name.includes('diesel') || name.includes('gas_quantity'))
+  const precursor = first((name) => (name.includes('precursor') || name.includes('wire_rod')) && name.includes('quantity'))
+  const precursorSee = first((name) => (name.includes('precursor') || name.includes('wire_rod')) && (name.includes('see') || name.includes('emission') || name.includes('factor')))
+  const target = Number(allocation.target_production_tonnes)
+  const total = Number(allocation.total_facility_production_tonnes)
+
+  const missing = [
+    !workspace.company_name.trim() && 'company details',
+    !workspace.installation_id.trim() && 'installation details',
+    !workspace.cn_code.trim() && 'product CN code',
+    !electricity && 'uploaded electricity consumption',
+    !fuel && 'uploaded fuel consumption',
+    !precursor && 'uploaded precursor quantity',
+    !precursorSee && 'supplier-declared precursor SEE',
+    !(target > 0) && 'target production quantity',
+    !(total > 0) && 'total installation production quantity',
+    !workspace.fuel_name && 'fuel type recorded on the bill',
+    !workspace.precursor_cn_code && 'precursor CN code from the supplier record',
+    !workspace.precursor_material_name && 'precursor material name from the supplier record',
+    !workspace.precursor_country && 'precursor country of origin from the supplier record',
+    allocation.fuel_is_shared === null && 'fuel allocation basis',
+    allocation.electricity_is_shared === null && 'electricity allocation basis',
+  ].filter(Boolean)
+  if (missing.length) {
+    throw new Error(`Calculation needs actual records for: ${missing.join(', ')}.`)
+  }
+  if (target > total) throw new Error('Target production cannot exceed total installation production.')
+  if (workspace.country.trim().toLowerCase() !== 'india') {
+    throw new Error('Select a country with an applicable sourced grid factor. This pilot currently has a sourced factor for India only.')
+  }
 
   return {
     reporting_period_id: workspace.reporting_period_id,
@@ -91,33 +98,33 @@ function buildRequest(
     },
     fuels: [
       {
-        ...FUEL,
-        quantity: quantities.fuel,
-        confidence_score: confidences.fuel,
-        is_shared_utility: true,
+        fuel_name: workspace.fuel_name,
+        quantity: fuel!.value,
+        unit: fuel!.unit,
+        confidence_score: fuel!.confidence,
+        is_shared_utility: allocation.fuel_is_shared!,
       },
     ],
     electricity: {
-      source_name: 'State Grid / PPA',
-      consumed_quantity: quantities.electricity,
-      unit: 'kWh',
-      grid_ef_tco2_per_mwh: GRID_EF,
-      confidence_score: confidences.electricity,
-      is_shared_utility: true,
+      source_name: 'Indian National Grid (CEA v19 Baseline)',
+      consumed_quantity: electricity!.value,
+      unit: electricity!.unit,
+      confidence_score: electricity!.confidence,
+      is_shared_utility: allocation.electricity_is_shared!,
     },
     precursors: [
       {
-        material_name: 'Steel Wire Rod',
-        consumed_quantity: quantities.precursor,
-        unit: 'tonne',
-        embedded_see_tco2_per_tonne: 1.85,
+        material_name: workspace.precursor_material_name,
+        consumed_quantity: precursor!.value,
+        unit: precursor!.unit,
+        embedded_see_tco2_per_tonne: precursorSee!.value,
         source_type: 'supplier_actual',
-        cn_code: '7228 30',
-        confidence_score: confidences.precursor,
+        cn_code: workspace.precursor_cn_code,
+        country_of_origin: workspace.precursor_country,
+        confidence_score: precursorSee!.confidence,
       },
     ],
-    apply_allocation_to_shared_energy:
-      allocation.apply_allocation_to_shared_energy,
+    apply_allocation_to_shared_energy: true,
     run_monte_carlo: true,
     monte_carlo_iterations: 2000,
   }
@@ -201,7 +208,8 @@ export function PassportPage() {
     setError(null)
     try {
       const result = await calculate(
-        buildRequest(workspace, allocation, documents, overrides)
+        buildRequest(workspace, allocation, documents, overrides),
+        false,
       )
       setCalculation(result)
     } catch (cause) {
@@ -246,7 +254,7 @@ export function PassportPage() {
     }
   }
 
-  const quality = calculation?.data_quality_rating ?? 'ACTUAL_PRIMARY'
+  const quality = calculation?.data_quality_rating ?? 'UNKNOWN'
   const fallback = quality === 'FALLBACK_DEFAULT'
 
   return (

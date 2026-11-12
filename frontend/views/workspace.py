@@ -1,117 +1,71 @@
-"""Workspace & Product Setup View."""
+"""Workspace setup based on information supplied by the operator."""
 
-import streamlit as st
 from datetime import date
 
-CN_CODE_OPTIONS = {
-    "7318 15 82": {
-        "desc": "Other screws and bolts, of steel, without heads or with cold formed heads",
-        "sector": "Iron and Steel",
-        "delta_cn": True,
-        "requires_precursors": True,
-        "precursor_name": "Steel Wire Rod (Alloy / Non-alloy)",
-    },
-    "7318 15 95": {
-        "desc": "Other screws and bolts, of steel, with heads, tensile strength < 800 MPa",
-        "sector": "Iron and Steel",
-        "delta_cn": True,
-        "requires_precursors": True,
-        "precursor_name": "Steel Wire Rod (Alloy / Non-alloy)",
-    },
-    "7318 16 00": {
-        "desc": "Nuts, of steel",
-        "sector": "Iron and Steel",
-        "delta_cn": True,
-        "requires_precursors": True,
-        "precursor_name": "Steel Wire Rod / Hex Bars",
-    },
-    "7228 30 00": {
-        "desc": "Precursor: Other bars and rods of alloy steel; wire rod",
-        "sector": "Iron and Steel (Precursor)",
-        "delta_cn": True,
-        "requires_precursors": False,
-        "precursor_name": "Direct Crude Steel / Billets",
-    },
-}
+import streamlit as st
+
+from app.db.database import SessionLocal
+from app.modules.calculation.factors import list_cn_codes
 
 
-def render_workspace_view():
-    st.subheader("🏢 Workspace & Product Setup")
-    st.caption("Configure manufacturing installation metadata, reporting period, and EU CBAM covered CN codes.")
+def render_workspace_view() -> None:
+    st.subheader("Workspace & product setup")
+    st.caption("Enter installation details and select the CN code that matches your exported product.")
 
-    # Initialize session state for workspace if not present
-    if "workspace" not in st.session_state:
+    ws = st.session_state.get("workspace", {})
+    with SessionLocal() as db:
+        cn_rows = list_cn_codes(db)
+    cn_codes = [row["cn_code"] for row in cn_rows if row["sector"] != "Iron and Steel (Precursor)"]
+    descriptions = {row["cn_code"]: row["description"] for row in cn_rows}
+
+    with st.form("workspace_setup"):
+        company_name = st.text_input("Exporting company name", value=ws.get("company_name", ""))
+        installation_name = st.text_input("Installation / factory name", value=ws.get("installation_name", ""))
+        installation_id = st.text_input("Installation ID or UN/LOCODE", value=ws.get("installation_id", ""))
+        country = st.text_input("Country of origin", value=ws.get("country", ""), placeholder="Enter the actual country")
+        cn_options = [""] + cn_codes
+        old_code = ws.get("cn_code", "")
+        selected_code = st.selectbox(
+            "Target product CN code",
+            cn_options,
+            index=cn_options.index(old_code) if old_code in cn_options else 0,
+            format_func=lambda code: "Select a CN code" if not code else f"{code} · {descriptions.get(code, '')}",
+        )
+        start_text = st.text_input("Reporting period start (YYYY-MM-DD)", value=str(ws.get("start_date", "")))
+        end_text = st.text_input("Reporting period end (YYYY-MM-DD)", value=str(ws.get("end_date", "")))
+        save = st.form_submit_button("Save workspace", type="primary", use_container_width=True)
+
+    if save:
+        missing = [label for label, value in (
+            ("company name", company_name), ("installation name", installation_name),
+            ("installation ID", installation_id), ("country", country), ("CN code", selected_code),
+            ("reporting period start", start_text), ("reporting period end", end_text),
+        ) if not value.strip()]
+        try:
+            start_date = date.fromisoformat(start_text.strip())
+            end_date = date.fromisoformat(end_text.strip())
+            if start_date > end_date:
+                raise ValueError("Reporting period start must be on or before its end.")
+        except ValueError as exc:
+            st.error(str(exc) or "Enter reporting dates in YYYY-MM-DD format.")
+            return
+        if missing:
+            st.error("Complete these workspace fields using your actual records: " + ", ".join(missing))
+            return
+
+        cn_row = next(row for row in cn_rows if row["cn_code"] == selected_code)
         st.session_state["workspace"] = {
-            "company_name": "Apex Fasteners Pvt Ltd",
-            "installation_name": "Apex Unit 1 - Cold Forging Plant",
-            "installation_id": "IN-FDB-001",
-            "un_locode": "IN FDB",
-            "country": "India",
-            "reporting_period": "2026 (Annual)",
-            "start_date": date(2026, 1, 1),
-            "end_date": date(2026, 12, 31),
-            "cn_code": "7318 15 82",
-            "includes_indirect": True,
-            "requires_precursors": True,
+            "company_name": company_name.strip(),
+            "installation_name": installation_name.strip(),
+            "installation_id": installation_id.strip(),
+            "un_locode": installation_id.strip(),
+            "country": country.strip(),
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "reporting_period": f"{start_date.isoformat()} to {end_date.isoformat()}",
+            "cn_code": selected_code,
+            "includes_indirect": cn_row["includes_indirect_emissions"],
+            "requires_precursors": cn_row["requires_precursors"],
+            "target_product_family": f"{descriptions[selected_code]} (CN {selected_code})",
         }
-
-    ws = st.session_state["workspace"]
-
-    with st.container():
-        col1, col2 = st.columns(2)
-        with col1:
-            company_name = st.text_input("Exporting Company Name", value=ws["company_name"])
-            installation_name = st.text_input("Installation / Factory Name", value=ws["installation_name"])
-            installation_id = st.text_input("Installation UN/LOCODE or Local ID", value=ws["installation_id"])
-
-        with col2:
-            country = st.selectbox("Country of Origin", ["India", "Vietnam", "Turkey", "Other"], index=0)
-            rep_col1, rep_col2 = st.columns(2)
-            with rep_col1:
-                start_date = st.date_input("Reporting Period Start", value=ws["start_date"])
-            with rep_col2:
-                end_date = st.date_input("Reporting Period End", value=ws["end_date"])
-
-        st.markdown("---")
-        st.markdown("#### 🎯 EU Combined Nomenclature (CN) Product Classification")
-
-        cn_selection = st.selectbox(
-            "Target Product CN Code (8-digit)",
-            options=list(CN_CODE_OPTIONS.keys()),
-            format_func=lambda x: f"{x} - {CN_CODE_OPTIONS[x]['desc'][:65]}...",
-            index=list(CN_CODE_OPTIONS.keys()).index(ws["cn_code"]) if ws["cn_code"] in CN_CODE_OPTIONS else 0,
-        )
-
-        selected_meta = CN_CODE_OPTIONS[cn_selection]
-
-        c_info1, c_info2, c_info3 = st.columns(3)
-        with c_info1:
-            st.info(f"**Sector:** {selected_meta['sector']}")
-        with c_info2:
-            st.info(f"**Precursor Mandatory:** {'Yes' if selected_meta['requires_precursors'] else 'No'}")
-        with c_info3:
-            st.info(f"**Default Material:** {selected_meta['precursor_name']}")
-
-        # Toggle for Scope 2
-        scope2_included = st.toggle(
-            "Include Indirect Emissions (Scope 2 / delta_CN = 1)",
-            value=selected_meta["delta_cn"],
-            help="Under the EU CBAM definitive regime, covered steel goods must embed Scope 2 electricity unless explicitly exempt by regulation.",
-        )
-
-        if st.button("💾 Save Workspace Configuration", type="primary", use_container_width=True):
-            st.session_state["workspace"] = {
-                "company_name": company_name,
-                "installation_name": installation_name,
-                "installation_id": installation_id,
-                "un_locode": installation_id,
-                "country": country,
-                "reporting_period": f"{start_date.year} (CBAM Definitive)",
-                "start_date": start_date,
-                "end_date": end_date,
-                "cn_code": cn_selection,
-                "includes_indirect": scope2_included,
-                "requires_precursors": selected_meta["requires_precursors"],
-                "target_product_family": f"Fasteners ({cn_selection})",
-            }
-            st.success("✅ Workspace configuration saved successfully!")
+        st.success("Workspace saved from the details you entered.")

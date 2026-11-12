@@ -31,6 +31,7 @@ const ACCEPTED = '.pdf,.png,.jpg,.jpeg,.csv,.xlsx'
 export function UploadPage() {
   const inputRef = useRef<HTMLInputElement>(null)
   const documents = useCbamStore((state) => state.documents)
+  const workspace = useCbamStore((state) => state.workspace)
   const addDocument = useCbamStore((state) => state.addDocument)
   const removeDocument = useCbamStore((state) => state.removeDocument)
   const [busy, setBusy] = useState(false)
@@ -38,11 +39,15 @@ export function UploadPage() {
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return
+    if (!workspace.installation_id.trim()) {
+      setError('Save the actual workspace and installation ID before uploading records.')
+      return
+    }
     setBusy(true)
     setError(null)
     for (const file of Array.from(files)) {
       try {
-        const result = await uploadDocument(file)
+        const result = await uploadDocument(file, workspace.installation_id)
         addDocument({ ...result, file_size_bytes: file.size })
         toast.success(
           `${result.filename}: ${result.extracted_fields.length} field(s) extracted.`

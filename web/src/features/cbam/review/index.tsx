@@ -58,9 +58,7 @@ function FieldReview({
   )
   const [unit, setUnit] = useState(existing?.override_unit ?? field.unit)
   const [reason, setReason] = useState(existing?.override_reason ?? '')
-  const [reviewer, setReviewer] = useState(
-    existing?.user_id ?? 'Auditor / Plant Manager'
-  )
+  const [reviewer, setReviewer] = useState(existing?.user_id ?? '')
   const [saving, setSaving] = useState(false)
 
   const save = async () => {
@@ -77,6 +75,10 @@ function FieldReview({
       toast.error('A justification is required for an audit override.')
       return
     }
+    if (!reviewer.trim()) {
+      toast.error('Enter the actual reviewer name or ID.')
+      return
+    }
     setSaving(true)
     let synced = false
     try {
@@ -86,7 +88,7 @@ function FieldReview({
         override_value: numeric,
         override_unit: unit,
         override_reason: reason.trim(),
-        user_id: reviewer.trim() || 'Auditor / Plant Manager',
+        user_id: reviewer.trim(),
       })
       synced = true
     } catch {
@@ -98,7 +100,7 @@ function FieldReview({
       override_value: numeric,
       override_unit: unit,
       override_reason: reason.trim(),
-      user_id: reviewer.trim() || 'Auditor / Plant Manager',
+      user_id: reviewer.trim(),
       raw_value: field.extracted_value,
       raw_unit: field.unit,
       updated_at: new Date().toISOString(),
@@ -210,6 +212,7 @@ function FieldReview({
               id={`reviewer-${field.field_name}`}
               value={reviewer}
               onChange={(event) => setReviewer(event.target.value)}
+              placeholder='Enter your name or reviewer ID'
             />
           </div>
           <Button onClick={() => void save()} disabled={saving}>

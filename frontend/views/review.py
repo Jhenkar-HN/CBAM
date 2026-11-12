@@ -118,7 +118,8 @@ def render_review_view() -> None:
                     )
                     reviewer = st.text_input(
                         "Reviewer ID",
-                        value=str(current.get("user_id", "Auditor / Plant Manager")) if current else "Auditor / Plant Manager",
+                        value=str(current.get("user_id", "")) if current else "",
+                        placeholder="Enter your name or reviewer ID",
                         key=f"reviewer_{index}_{selected_hash[:12]}_{field_name}",
                     )
                     save = st.form_submit_button("Save audit override", type="primary", use_container_width=True)

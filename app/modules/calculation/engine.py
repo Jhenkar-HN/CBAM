@@ -2,11 +2,22 @@
 
 STRICT PRINCIPLE: AI NEVER PERFORMS EMISSIONS ARITHMETIC.
 All calculations are 100% deterministic, testable, and auditable.
+
+Every emission factor and CN classification is resolved from the seeded
+reference tables. The engine contains no fallback factor values of its own:
+if a required factor is missing it raises, rather than inventing data.
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
+
 from sqlalchemy.orm import Session
 
+from app.modules.calculation.factors import (
+    find_cn_code,
+    resolve_electricity_factor,
+    resolve_fuel_factors,
+    resolve_precursor_default,
+)
 from app.modules.calculation.unit_converter import (
     to_energy_gigajoules,
     to_megawatt_hours,
@@ -16,46 +27,10 @@ from app.schemas.calculation import (
     DataQualityRating,
     DeterministicCalculationRequest,
     DeterministicCalculationResult,
+    ElectricityConsumptionItem,
     FuelCombustionItem,
     PrecursorMaterialItem,
 )
-
-# EU CBAM Commission Implementing Regulation default fallbacks (tCO2/t or default values)
-OFFICIAL_CBAM_FALLBACKS: Dict[str, Dict[str, float]] = {
-    # Steel Precursor: Alloy Steel Wire Rod (India)
-    "7228 30": {
-        "default_see_tco2_per_tonne": 2.24,
-        "default_markup_pct": 10.0,  # 10% penalty markup for unverified fallback data
-        "description": "EU CBAM Default - Alloy Steel Wire Rod (India)",
-    },
-    # Non-alloy wire rod (India)
-    "7213 10": {
-        "default_see_tco2_per_tonne": 2.15,
-        "default_markup_pct": 10.0,
-        "description": "EU CBAM Default - Bars and rods, hot-rolled (India)",
-    },
-    # Crude Steel
-    "7207": {
-        "default_see_tco2_per_tonne": 1.95,
-        "default_markup_pct": 10.0,
-        "description": "EU CBAM Default - Semi-finished products of iron or non-alloy steel",
-    },
-}
-
-# Standard Default Grid Emission Factors (tCO2 / MWh)
-OFFICIAL_GRID_FACTORS: Dict[str, float] = {
-    "IN": 0.716,  # CEA CO2 Baseline Database v19
-    "EU_DEFAULT_IN": 0.820,  # EU CBAM default for Indian electricity
-    "GLOBAL": 0.700,
-}
-
-# Standard Fuel Defaults (NCV in GJ/unit, EF in tCO2/GJ)
-OFFICIAL_FUEL_FACTORS: Dict[str, Dict[str, float]] = {
-    "furnace oil": {"ncv": 0.0402, "ef": 0.0774, "unit": "litre"},
-    "diesel": {"ncv": 0.0357, "ef": 0.0741, "unit": "litre"},
-    "natural gas": {"ncv": 0.0385, "ef": 0.0561, "unit": "nm3"},
-    "lpg": {"ncv": 0.0461, "ef": 0.0631, "unit": "kg"},
-}
 
 
 def compute_mass_allocation_factor(
@@ -79,27 +54,112 @@ def compute_mass_allocation_factor(
     return target_production_tonnes / total_facility_production_tonnes
 
 
-def determine_delta_cn(cn_code: str, db: Optional[Session] = None) -> bool:
+def determine_delta_cn(cn_code: str, db: Session) -> bool:
     """
-    Determines whether the 8-digit CN code requires Scope 2 indirect emissions (delta_CN = 1).
-    For Iron & Steel Fasteners (CN 7318 group), delta_CN = True under definitive rules.
+    Determines whether the CN code requires Scope 2 indirect emissions (delta_CN = 1)
+    using the CBAM CN code registry.
     """
-    clean_code = cn_code.replace(" ", "")
+    if db is None:
+        raise ValueError("A database session is required to resolve the CBAM CN classification.")
+    entry = find_cn_code(db, cn_code)
+    if entry is None:
+        raise ValueError(
+            f"CN code '{cn_code}' is not registered as a CBAM-covered good. "
+            "Select a CN code from the reference registry."
+        )
+    return bool(entry.includes_indirect_emissions)
 
-    # Query DB if available
-    if db is not None:
-        from app.db.models import CNCodeRegistry
-        entry = db.query(CNCodeRegistry).filter_by(cn_code=cn_code).first()
-        if not entry:
-            entry = db.query(CNCodeRegistry).filter(CNCodeRegistry.cn_code.like(f"%{clean_code[:4]}%")).first()
-        if entry:
-            return bool(entry.includes_indirect_emissions)
 
-    # Steel Fasteners (CN 7318) and related steel products include indirect emissions (delta_CN = 1)
-    if clean_code.startswith("7318") or clean_code.startswith("72"):
-        return True
+def _resolve_request_factors(
+    request: DeterministicCalculationRequest,
+    db: Session,
+) -> Tuple[DeterministicCalculationRequest, List[str]]:
+    """Fills missing factor values from the reference database, or raises."""
+    if db is None:
+        raise ValueError("A database session is required to resolve emission factors.")
 
-    return True
+    notes: List[str] = []
+
+    fuels: List[FuelCombustionItem] = []
+    for fuel in request.fuels:
+        ncv = fuel.ncv
+        ef = fuel.ef
+        if ncv is None or ncv <= 0 or ef is None or ef <= 0:
+            row = resolve_fuel_factors(db, fuel.fuel_name)
+            if row is None or row.ncv_value is None or row.ef_value is None:
+                raise ValueError(
+                    f"No reference NCV/EF found for fuel '{fuel.fuel_name}'. "
+                    "Select a fuel from the reference factor list."
+                )
+            if ncv is None or ncv <= 0:
+                ncv = row.ncv_value
+                notes.append(f"Resolved NCV for {fuel.fuel_name} from '{row.item_name}': {ncv} {row.ncv_unit}.")
+            if ef is None or ef <= 0:
+                ef = row.ef_value
+                notes.append(f"Resolved EF for {fuel.fuel_name} from '{row.item_name}': {ef} {row.ef_unit}.")
+        fuels.append(fuel.model_copy(update={"ncv": ncv, "ef": ef}))
+
+    electricity = request.electricity
+    if electricity is not None and (electricity.grid_ef_tco2_per_mwh is None or electricity.grid_ef_tco2_per_mwh <= 0):
+        row = resolve_electricity_factor(db, electricity.source_name)
+        if row is None or row.ef_value is None:
+            raise ValueError(
+                f"No reference electricity factor matched '{electricity.source_name}'. "
+                "Select an electricity factor from the reference list."
+            )
+        electricity = electricity.model_copy(update={"grid_ef_tco2_per_mwh": row.ef_value})
+        notes.append(
+            f"Resolved grid EF for {electricity.source_name} from '{row.item_name}': {row.ef_value} {row.ef_unit}."
+        )
+
+    precursors: List[PrecursorMaterialItem] = []
+    for prec in request.precursors:
+        is_fallback = prec.is_fallback or prec.source_type == "eu_default"
+        if not is_fallback:
+            if prec.embedded_see_tco2_per_tonne is None or prec.embedded_see_tco2_per_tonne <= 0:
+                raise ValueError(
+                    f"Supplier SEE is required for precursor '{prec.material_name}' (CN {prec.cn_code}). "
+                    "Upload supplier emissions data or explicitly mark an approved official fallback."
+                )
+            precursors.append(prec)
+            continue
+
+        row = resolve_precursor_default(db, prec.cn_code)
+        if row is None or row.ef_value is None:
+            raise ValueError(
+                f"No EU default precursor factor is registered for CN code '{prec.cn_code}'. "
+                "Provide a supplier-declared SEE or select a registered default."
+            )
+        markup_pct = prec.fallback_markup_pct
+        if markup_pct is None:
+            markup_pct = row.markup_pct
+        if markup_pct is None:
+            raise ValueError(
+                f"Reference precursor factor '{row.item_name}' has no regulatory markup percentage configured."
+            )
+        see_val = row.ef_value * (1.0 + (markup_pct / 100.0))
+        notes.append(
+            f"Precursor '{prec.material_name}' (CN {prec.cn_code}): applied reference default SEE of "
+            f"{row.ef_value} tCO2/t from '{row.item_name}' with +{markup_pct}% penalty markup -> {see_val:.4f} tCO2/t."
+        )
+        precursors.append(
+            prec.model_copy(
+                update={
+                    "embedded_see_tco2_per_tonne": see_val,
+                    "fallback_markup_pct": markup_pct,
+                    "is_fallback": True,
+                }
+            )
+        )
+
+    resolved = request.model_copy(
+        update={
+            "fuels": fuels,
+            "electricity": electricity,
+            "precursors": precursors,
+        }
+    )
+    return resolved, notes
 
 
 def calculate_fuel_emissions(
@@ -112,54 +172,26 @@ def calculate_fuel_emissions(
     Direct = Quantity * NCV * EF * OF
     Returns: (gross_emissions_tco2, allocated_emissions_tco2, notes)
     """
-    notes = []
-    fuel_key = fuel.fuel_name.lower().strip()
-
-    # Resolve NCV
-    ncv = fuel.ncv
-    if ncv is None or ncv <= 0:
-        matched_default = None
-        for k, v in OFFICIAL_FUEL_FACTORS.items():
-            if k in fuel_key:
-                matched_default = v
-                break
-        if matched_default:
-            ncv = matched_default["ncv"]
-            notes.append(f"Used default NCV for {fuel.fuel_name}: {ncv} GJ/{fuel.unit}")
-        else:
-            raise ValueError(f"Missing Net Calorific Value (NCV) for fuel '{fuel.fuel_name}'.")
-
-    # Resolve EF
-    ef = fuel.ef
-    if ef is None or ef <= 0:
-        matched_default = None
-        for k, v in OFFICIAL_FUEL_FACTORS.items():
-            if k in fuel_key:
-                matched_default = v
-                break
-        if matched_default:
-            ef = matched_default["ef"]
-            notes.append(f"Used default Emission Factor for {fuel.fuel_name}: {ef} tCO2/GJ")
-        else:
-            raise ValueError(f"Missing Emission Factor (EF) for fuel '{fuel.fuel_name}'.")
+    if fuel.ncv is None or fuel.ncv <= 0:
+        raise ValueError(f"Missing Net Calorific Value (NCV) for fuel '{fuel.fuel_name}'.")
+    if fuel.ef is None or fuel.ef <= 0:
+        raise ValueError(f"Missing Emission Factor (EF) for fuel '{fuel.fuel_name}'.")
 
     of = fuel.oxidation_factor if fuel.oxidation_factor is not None else 1.0
 
-    # Convert quantity to GJ
-    energy_gj = to_energy_gigajoules(fuel.quantity, fuel.unit, ncv)
-    gross_tco2 = energy_gj * ef * of
+    energy_gj = to_energy_gigajoules(fuel.quantity, fuel.unit, fuel.ncv)
+    gross_tco2 = energy_gj * fuel.ef * of
 
-    # Allocation: if fuel is shared facility utility, multiply by alpha_p
     if apply_allocation and fuel.is_shared_utility:
         allocated_tco2 = gross_tco2 * allocation_factor_alpha
     else:
         allocated_tco2 = gross_tco2
 
-    return gross_tco2, allocated_tco2, notes
+    return gross_tco2, allocated_tco2, []
 
 
 def calculate_electricity_emissions(
-    electricity_item,
+    electricity_item: ElectricityConsumptionItem,
     allocation_factor_alpha: float,
     apply_allocation: bool = True,
 ) -> Tuple[float, float, List[str]]:
@@ -171,16 +203,13 @@ def calculate_electricity_emissions(
     if not electricity_item or electricity_item.consumed_quantity <= 0:
         return 0.0, 0.0, []
 
-    notes = []
-    # Convert consumed quantity to MWh
-    mwh = to_megawatt_hours(electricity_item.consumed_quantity, electricity_item.unit)
-
-    # Resolve grid emission factor
     grid_ef = electricity_item.grid_ef_tco2_per_mwh
     if grid_ef is None or grid_ef <= 0:
-        grid_ef = OFFICIAL_GRID_FACTORS["IN"]  # Default CEA baseline
-        notes.append(f"Used default CEA v19 grid emission factor: {grid_ef} tCO2/MWh")
+        raise ValueError(
+            f"Missing grid emission factor for electricity source '{electricity_item.source_name}'."
+        )
 
+    mwh = to_megawatt_hours(electricity_item.consumed_quantity, electricity_item.unit)
     gross_tco2 = mwh * grid_ef
 
     if apply_allocation and electricity_item.is_shared_utility:
@@ -188,7 +217,7 @@ def calculate_electricity_emissions(
     else:
         allocated_tco2 = gross_tco2
 
-    return gross_tco2, allocated_tco2, notes
+    return gross_tco2, allocated_tco2, []
 
 
 def calculate_precursor_emissions(
@@ -197,34 +226,18 @@ def calculate_precursor_emissions(
     """
     Calculates embedded emissions from a precursor material.
     Emissions = Mass (tonnes) * Embedded SEE (tCO2/tonne)
-    If unverified / fallback, applies mandatory penalty markup.
     Returns: (precursor_tco2, is_fallback_used, notes)
     """
-    notes = []
     is_fallback = precursor.is_fallback or precursor.source_type == "eu_default"
-
-    # Convert consumed quantity to metric tonnes
-    mass_tonnes = to_metric_tonnes(precursor.consumed_quantity, precursor.unit)
-
     see_val = precursor.embedded_see_tco2_per_tonne
-
-    # Check if fallback is required
-    if see_val is None or see_val <= 0 or is_fallback:
-        is_fallback = True
-        cn_key = precursor.cn_code or "7228 30"
-        fallback_info = OFFICIAL_CBAM_FALLBACKS.get(cn_key, OFFICIAL_CBAM_FALLBACKS["7228 30"])
-        base_fallback_see = fallback_info["default_see_tco2_per_tonne"]
-        markup_pct = precursor.fallback_markup_pct or fallback_info["default_markup_pct"]
-
-        # Apply mandatory markup penalty
-        see_val = base_fallback_see * (1.0 + (markup_pct / 100.0))
-        notes.append(
-            f"Precursor '{precursor.material_name}' (CN {cn_key}): Applied EU default fallback SEE of "
-            f"{base_fallback_see} tCO2/t with +{markup_pct}% penalty markup -> {see_val:.4f} tCO2/t."
+    if see_val is None or see_val <= 0:
+        raise ValueError(
+            f"Missing embedded SEE for precursor '{precursor.material_name}' (CN {precursor.cn_code})."
         )
 
+    mass_tonnes = to_metric_tonnes(precursor.consumed_quantity, precursor.unit)
     precursor_tco2 = mass_tonnes * see_val
-    return precursor_tco2, is_fallback, notes
+    return precursor_tco2, is_fallback, []
 
 
 def calculate_product_see(
@@ -237,70 +250,67 @@ def calculate_product_see(
 
     SEE = [Allocated Scope 1 + (delta_CN * Allocated Scope 2) + Precursor Emissions] / Net Target Production (tonnes)
     """
-    fallback_notes: List[str] = []
-    any_fallback_used = False
+    resolved_request, fallback_notes = _resolve_request_factors(request, db)
+    any_fallback_used = any(
+        prec.is_fallback or prec.source_type == "eu_default" for prec in resolved_request.precursors
+    )
 
     # 1. Net Target and Total Facility Production (tonnes)
     target_tonnes = to_metric_tonnes(
-        request.production.target_production_quantity,
-        request.production.target_production_unit,
+        resolved_request.production.target_production_quantity,
+        resolved_request.production.target_production_unit,
     )
     total_facility_tonnes = to_metric_tonnes(
-        request.production.total_facility_production_quantity,
-        request.production.total_facility_production_unit,
+        resolved_request.production.total_facility_production_quantity,
+        resolved_request.production.total_facility_production_unit,
     )
 
     # 2. Multi-Product Mass Allocation Factor (alpha_p)
     alpha_p = compute_mass_allocation_factor(target_tonnes, total_facility_tonnes)
 
     # 3. Delta CN Configuration (Scope 2 inclusion flag)
-    delta_cn = determine_delta_cn(request.cn_code, db)
+    delta_cn = determine_delta_cn(resolved_request.cn_code, db)
 
     # 4. Scope 1 Combustion & Process Emissions
     facility_gross_scope1 = 0.0
     allocated_scope1 = 0.0
 
-    for fuel in request.fuels:
-        gross_f, alloc_f, f_notes = calculate_fuel_emissions(
+    for fuel in resolved_request.fuels:
+        gross_f, alloc_f, _ = calculate_fuel_emissions(
             fuel,
             alpha_p,
-            apply_allocation=request.apply_allocation_to_shared_energy,
+            apply_allocation=resolved_request.apply_allocation_to_shared_energy,
         )
         facility_gross_scope1 += gross_f
         allocated_scope1 += alloc_f
-        fallback_notes.extend(f_notes)
 
     # Process Emissions (if any)
-    if request.process_emissions_tco2 > 0:
-        facility_gross_scope1 += request.process_emissions_tco2
+    if resolved_request.process_emissions_tco2 > 0:
+        facility_gross_scope1 += resolved_request.process_emissions_tco2
         allocated_scope1 += (
-            request.process_emissions_tco2 * alpha_p
-            if request.apply_allocation_to_shared_energy
-            else request.process_emissions_tco2
+            resolved_request.process_emissions_tco2 * alpha_p
+            if resolved_request.apply_allocation_to_shared_energy
+            else resolved_request.process_emissions_tco2
         )
 
     # 5. Scope 2 Grid Electricity Emissions
     facility_gross_scope2 = 0.0
     allocated_scope2 = 0.0
 
-    if request.electricity:
-        gross_e, alloc_e, e_notes = calculate_electricity_emissions(
-            request.electricity,
+    if resolved_request.electricity:
+        gross_e, alloc_e, _ = calculate_electricity_emissions(
+            resolved_request.electricity,
             alpha_p,
-            apply_allocation=request.apply_allocation_to_shared_energy,
+            apply_allocation=resolved_request.apply_allocation_to_shared_energy,
         )
         facility_gross_scope2 = gross_e
         allocated_scope2 = alloc_e
-        fallback_notes.extend(e_notes)
 
     # 6. Precursor Material Emissions
     total_precursor_emissions = 0.0
-    for prec in request.precursors:
-        prec_emissions, is_fb, prec_notes = calculate_precursor_emissions(prec)
+    for prec in resolved_request.precursors:
+        prec_emissions, _, _ = calculate_precursor_emissions(prec)
         total_precursor_emissions += prec_emissions
-        if is_fb:
-            any_fallback_used = True
-        fallback_notes.extend(prec_notes)
 
     # 7. Total Embedded Emissions (tCO2)
     indirect_contribution = allocated_scope2 if delta_cn else 0.0
@@ -313,10 +323,10 @@ def calculate_product_see(
     if any_fallback_used:
         data_quality = DataQualityRating.FALLBACK_DEFAULT
     else:
-        has_low_conf = any(f.confidence_score < 0.90 for f in request.fuels)
-        if request.electricity and request.electricity.confidence_score < 0.90:
+        has_low_conf = any(f.confidence_score < 0.90 for f in resolved_request.fuels)
+        if resolved_request.electricity and resolved_request.electricity.confidence_score < 0.90:
             has_low_conf = True
-        if any(p.confidence_score < 0.90 for p in request.precursors):
+        if any(p.confidence_score < 0.90 for p in resolved_request.precursors):
             has_low_conf = True
 
         data_quality = DataQualityRating.HYBRID_ESTIMATED if has_low_conf else DataQualityRating.ACTUAL_PRIMARY
@@ -334,27 +344,63 @@ def calculate_product_see(
     uncertainty_low = None
     uncertainty_high = None
 
-    if request.run_monte_carlo:
+    if resolved_request.run_monte_carlo:
         from app.modules.uncertainty.monte_carlo import run_monte_carlo_simulation
         uncertainty_result = run_monte_carlo_simulation(
-            request=request,
+            request=resolved_request,
             deterministic_see=see,
             alpha_p=alpha_p,
             delta_cn=delta_cn,
             target_tonnes=target_tonnes,
-            iterations=request.monte_carlo_iterations,
+            iterations=resolved_request.monte_carlo_iterations,
         )
         uncertainty_low = uncertainty_result.p5
         uncertainty_high = uncertainty_result.p95
 
     # 12. Input Snapshot Freeze
     input_snapshot = {
-        "reporting_period_id": request.reporting_period_id,
-        "cn_code": request.cn_code,
+        "reporting_period_id": resolved_request.reporting_period_id,
+        "cn_code": resolved_request.cn_code,
         "delta_cn": delta_cn,
         "alpha_p": alpha_p,
         "target_production_tonnes": target_tonnes,
         "total_facility_production_tonnes": total_facility_tonnes,
+        "fuel_factors": [
+            {
+                "fuel_name": fuel.fuel_name,
+                "quantity": fuel.quantity,
+                "unit": fuel.unit,
+                "ncv_gj_per_unit": fuel.ncv,
+                "ef_tco2_per_gj": fuel.ef,
+                "oxidation_factor": fuel.oxidation_factor,
+                "is_shared_utility": fuel.is_shared_utility,
+            }
+            for fuel in resolved_request.fuels
+        ],
+        "electricity_factor": (
+            {
+                "source_name": resolved_request.electricity.source_name,
+                "consumed_quantity": resolved_request.electricity.consumed_quantity,
+                "unit": resolved_request.electricity.unit,
+                "grid_ef_tco2_per_mwh": resolved_request.electricity.grid_ef_tco2_per_mwh,
+                "is_shared_utility": resolved_request.electricity.is_shared_utility,
+            }
+            if resolved_request.electricity
+            else None
+        ),
+        "precursor_factors": [
+            {
+                "material_name": prec.material_name,
+                "cn_code": prec.cn_code,
+                "consumed_quantity": prec.consumed_quantity,
+                "unit": prec.unit,
+                "embedded_see_tco2_per_tonne": prec.embedded_see_tco2_per_tonne,
+                "source_type": prec.source_type,
+                "is_fallback": prec.is_fallback,
+                "fallback_markup_pct": prec.fallback_markup_pct,
+            }
+            for prec in resolved_request.precursors
+        ],
         "gross_scope1_tco2": facility_gross_scope1,
         "allocated_scope1_tco2": allocated_scope1,
         "gross_scope2_tco2": facility_gross_scope2,
@@ -367,9 +413,9 @@ def calculate_product_see(
     }
 
     return DeterministicCalculationResult(
-        reporting_period_id=request.reporting_period_id,
-        target_cn_code=request.cn_code,
-        target_product_family=request.production.target_product_family,
+        reporting_period_id=resolved_request.reporting_period_id,
+        target_cn_code=resolved_request.cn_code,
+        target_product_family=resolved_request.production.target_product_family,
         allocation_factor_alpha=alpha_p,
         includes_indirect_delta_cn=delta_cn,
         data_quality_rating=data_quality,

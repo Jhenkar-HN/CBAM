@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import List, Optional
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/documents", tags=["Document AI & Evidence Ledger"])
 @router.post("/upload", response_model=DocumentExtractionResult, status_code=status.HTTP_201_CREATED)
 async def upload_document(
     file: UploadFile = File(...),
-    workspace_id: str = "default_workspace",
+    workspace_id: str = Form(...),
     db: Session = Depends(get_db)
 ):
     """

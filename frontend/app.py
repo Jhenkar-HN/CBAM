@@ -40,6 +40,52 @@ STEPS = [
 ]
 
 
+def clear_legacy_demo_state() -> None:
+    """Drop the old shipped demo workspace/records from an already-open session."""
+    marker = "real_data_only_cleanup_v1"
+    if st.session_state.get(marker):
+        return
+
+    workspace = st.session_state.get("workspace") or {}
+    if (
+        workspace.get("company_name") == "Apex Fasteners Pvt Ltd"
+        and workspace.get("installation_id") == "IN-FDB-001"
+    ):
+        st.session_state.pop("workspace", None)
+
+    allocation = st.session_state.get("allocation_data") or {}
+    if (
+        allocation.get("target_production_tonnes") == 500.0
+        and allocation.get("total_facility_production_tonnes") == 625.0
+    ):
+        st.session_state.pop("allocation_data", None)
+
+    demo_names = {
+        "DHBVN_Electricity_Oct2026.csv",
+        "IOCL_Furnace_Oil_Invoice.csv",
+        "Steel_Wire_Rod_Mill_Cert.csv",
+        "Factory_Production_Summary.csv",
+    }
+    documents = st.session_state.get("uploaded_documents") or {}
+    removed_hashes = {
+        digest for digest, document in documents.items()
+        if document.get("filename") in demo_names
+    }
+    if removed_hashes:
+        st.session_state["uploaded_documents"] = {
+            digest: document for digest, document in documents.items()
+            if digest not in removed_hashes
+        }
+        overrides = st.session_state.get("field_overrides") or {}
+        st.session_state["field_overrides"] = {
+            key: value for key, value in overrides.items()
+            if not any(key.startswith(f"{digest}_") for digest in removed_hashes)
+        }
+        st.session_state.pop("latest_calculation", None)
+
+    st.session_state[marker] = True
+
+
 def check_api_health() -> bool:
     try:
         return requests.get(f"{API_BASE_URL}/health", timeout=1).status_code == 200
@@ -48,6 +94,7 @@ def check_api_health() -> bool:
 
 
 def main() -> None:
+    clear_legacy_demo_state()
     active_page = st.session_state.setdefault("active_page", "workspace")
 
     with st.sidebar:
@@ -71,9 +118,9 @@ def main() -> None:
         st.divider()
         workspace = st.session_state.get("workspace", {})
         st.markdown("**Active installation**")
-        st.markdown(f"**Entity:** {workspace.get('company_name', 'Apex Fasteners')}")
-        st.markdown(f"**Plant:** {workspace.get('installation_name', 'Apex Unit 1')}")
-        st.markdown(f"**CN code:** {workspace.get('cn_code', '7318 15 82')}")
+        st.markdown(f"**Entity:** {workspace.get('company_name') or 'Not configured'}")
+        st.markdown(f"**Plant:** {workspace.get('installation_name') or 'Not configured'}")
+        st.markdown(f"**CN code:** {workspace.get('cn_code') or 'Not selected'}")
         st.markdown(f"**Ledger documents:** {len(st.session_state.get('uploaded_documents', {}))}")
         st.divider()
         st.caption("Decision-support prototype. Does not certify emissions or replace an accredited verifier.")

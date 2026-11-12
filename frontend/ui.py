@@ -11,8 +11,10 @@ def _load_stylesheet() -> str:
     return path.read_text(encoding="utf-8")
 
 
-def inject_custom_css(theme: str = "light") -> None:
-    """Load the shared stylesheet with the selected color palette."""
+def inject_custom_css(theme: str | None = None) -> None:
+    """Load the shared stylesheet using the selected app appearance."""
+    if theme is None:
+        theme = "dark" if st.session_state.get("dark_mode", False) else "light"
     palettes = {
         "light": {
             "slate": "#1E293B", "canvas": "#F8FAFC", "surface": "#FFFFFF",

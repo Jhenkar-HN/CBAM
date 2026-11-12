@@ -31,7 +31,7 @@ class HumanOverrideRequest(BaseModel):
     override_value: float = Field(..., description="Corrected numerical value")
     override_unit: Optional[str] = Field(None, description="Corrected unit if different")
     override_reason: str = Field(..., description="Mandatory justification for audit compliance")
-    user_id: str = Field(default="Auditor / Plant Manager", description="Identifier of the user applying the override")
+    user_id: str = Field(..., description="Identifier of the user applying the override")
 
 
 class DocumentRecordRead(BaseSchema):

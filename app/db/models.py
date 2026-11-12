@@ -86,6 +86,8 @@ class CBAMDefaultValues(Base):
     geographic_scope = Column(String(100), default="India / Global")
     source_reference = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
+    cn_code = Column(String(20), nullable=True, index=True)  # Precursor defaults are keyed to a CN code
+    markup_pct = Column(Float, nullable=True)  # Regulatory penalty markup applied to unverified defaults
 
 
 class ReportingPeriod(Base):
@@ -118,7 +120,7 @@ class DocumentRecord(Base):
     id = Column(Integer, primary_key=True, index=True)
     document_hash = Column(String(64), unique=True, index=True, nullable=False)
     filename = Column(String(255), nullable=False)
-    workspace_id = Column(String(100), default="default_workspace", index=True)
+    workspace_id = Column(String(100), nullable=False, index=True)
     page_count = Column(Integer, default=1)
     file_size_bytes = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=utc_now)

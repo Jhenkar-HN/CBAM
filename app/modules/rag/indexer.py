@@ -40,8 +40,8 @@ class RegulatoryChunk:
         chunk_id: str,
         document_title: str,
         section_reference: str,
-        publication_year: int,
-        url: str,
+        publication_year: Optional[int],
+        url: Optional[str],
         text: str,
     ):
         self.chunk_id = chunk_id
@@ -67,10 +67,10 @@ def parse_raw_regulatory_file(filepath: Path) -> List[RegulatoryChunk]:
     content = filepath.read_text(encoding="utf-8")
     lines = content.split("\n")
 
-    doc_title = filepath.stem.replace("_", " ").title()
+    doc_title = None
     section_ref = "General"
-    pub_year = 2024
-    url = "https://taxation-customs.ec.europa.eu/carbon-border-adjustment-mechanism_en"
+    pub_year = None
+    url = None
 
     body_lines = []
     for line in lines:
@@ -90,7 +90,8 @@ def parse_raw_regulatory_file(filepath: Path) -> List[RegulatoryChunk]:
             body_lines.append(line)
 
     full_body = "\n".join(body_lines).strip()
-    if not full_body:
+    if not full_body or not doc_title or pub_year is None or not url:
+        logger.warning("Skipping %s: source text, official title, publication year, and source URL are required.", filepath)
         return []
 
     paragraphs = [p.strip() for p in full_body.split("\n\n") if p.strip()]

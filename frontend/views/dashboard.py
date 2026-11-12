@@ -6,6 +6,8 @@ import requests
 import streamlit as st
 
 from app.modules.calculation.engine import calculate_product_see
+from app.db.database import SessionLocal
+from app.modules.calculation.factors import list_cn_codes, list_factors
 from app.modules.reporting.csv_generator import generate_passport_csv
 from app.modules.reporting.pdf_generator import generate_passport_pdf
 from app.schemas.calculation import (
@@ -21,67 +23,105 @@ API_BASE_URL = "http://localhost:8000/api/v1"
 
 
 def gather_effective_inputs() -> DeterministicCalculationRequest:
-    """Build deterministic calculation inputs from reviewed session data."""
-    ws = st.session_state.get("workspace", {
-        "company_name": "Apex Fasteners Pvt Ltd",
-        "installation_id": "IN-FDB-001",
-        "cn_code": "7318 15 82",
-        "includes_indirect": True,
-        "target_product_family": "Steel Fasteners (CN 7318 15 82)",
-    })
-    alloc = st.session_state.get("allocation_data", {
-        "target_production_tonnes": 500.0,
-        "total_facility_production_tonnes": 625.0,
-        "apply_allocation_to_shared_energy": True,
-    })
-    overrides = st.session_state.get("field_overrides", {})
-    docs = st.session_state.get("uploaded_documents", {})
-
-    quantities = {"electricity": 250000.0, "fuel": 15000.0, "precursor": 520.0}
-    confidences = {"electricity": 0.96, "fuel": 0.95, "precursor": 0.95}
+    """Build inputs only from reviewed uploaded fields and operator-entered production data."""
+    ws = st.session_state.get("workspace") or {}
+    alloc = st.session_state.get("allocation_data") or {}
+    docs = st.session_state.get("uploaded_documents") or {}
+    overrides = st.session_state.get("field_overrides") or {}
+    extracted = []
     for digest, document in docs.items():
         for field in document.get("extracted_fields", []):
             name = str(field.get("field_name", "")).lower()
             key = f"{digest}_{field.get('field_name', '')}"
-            effective = overrides.get(key, {}).get("override_value", field.get("extracted_value", 0.0))
+            override = overrides.get(key) or {}
+            raw_value = field.get("extracted_value")
+            value = override.get("override_value", raw_value)
+            unit = override.get("override_unit") or field.get("unit")
             try:
-                value = float(effective)
+                value = float(value)
             except (TypeError, ValueError):
                 continue
-            if "electricity" in name:
-                quantities["electricity"] = max(0.0, value)
-                confidences["electricity"] = float(field.get("confidence_score", 0.95))
-            elif "furnace" in name or "fuel" in name:
-                quantities["fuel"] = max(0.001, value)
-                confidences["fuel"] = float(field.get("confidence_score", 0.95))
-            elif "precursor" in name:
-                quantities["precursor"] = max(0.001, value)
-                confidences["precursor"] = float(field.get("confidence_score", 0.95))
-            elif "production" in name and alloc.get("use_extracted_production"):
-                alloc["target_production_tonnes"] = max(0.001, value)
+            extracted.append((name, value, str(unit or ""), float(field.get("confidence_score", 0.0))))
+
+    electricity_field = next((row for row in extracted if "electric" in row[0] or "kwh" in row[0] or "mwh" in row[0]), None)
+    fuel_field = next((row for row in extracted if "fuel" in row[0] or "diesel" in row[0] or "gas" in row[0] or "oil" in row[0]), None)
+    precursor_field = next((row for row in extracted if any(token in row[0] for token in ("precursor", "wire_rod", "material_quantity")) and not any(token in row[0] for token in ("see", "factor", "emission"))), None)
+    precursor_see_field = next((row for row in extracted if any(token in row[0] for token in ("precursor", "wire_rod", "material")) and any(token in row[0] for token in ("see", "factor", "emission"))), None)
+
+    missing = []
+    if not ws.get("company_name") or not ws.get("cn_code"):
+        missing.append("saved company and product workspace")
+    if not alloc.get("target_production_tonnes") or not alloc.get("total_facility_production_tonnes"):
+        missing.append("target and total production quantities")
+    if alloc.get("fuel_allocation_basis") not in {"shared", "product_only"}:
+        missing.append("fuel allocation basis from the meter / invoice")
+    if alloc.get("electricity_allocation_basis") not in {"shared", "product_only"}:
+        missing.append("electricity allocation basis from the meter / invoice")
+    if electricity_field is None:
+        missing.append("electricity consumption extracted from an uploaded record")
+    if fuel_field is None:
+        missing.append("fuel consumption extracted from an uploaded record")
+    if precursor_field is None:
+        missing.append("precursor quantity extracted from a supplier record")
+    if missing:
+        raise ValueError("Calculation is unavailable until these actual inputs are provided: " + "; ".join(missing) + ".")
+
+    with SessionLocal() as db:
+        factors = list_factors(db)
+    fuel_options = factors["fuel"]
+    if not fuel_options:
+        raise ValueError("No sourced fuel factors are available in the reference database.")
+    selected_fuel = st.session_state.get("selected_fuel_factor")
+    fuel_names = [item["item_name"] for item in fuel_options]
+    if selected_fuel not in fuel_names:
+        raise ValueError("Select the fuel type shown on your uploaded fuel record before calculating.")
+
+    electricity_options = factors["electricity"]
+    if not electricity_options:
+        raise ValueError("No sourced electricity factors are available in the reference database.")
+    selected_grid = st.session_state.get("selected_grid_factor")
+    grid_names = [item["item_name"] for item in electricity_options]
+    if selected_grid not in grid_names:
+        raise ValueError("Select the electricity factor that applies to the uploaded electricity record.")
+
+    precursor_code = st.session_state.get("precursor_cn_code")
+    if not precursor_code:
+        raise ValueError("Select the precursor CN code from the supplier record.")
+    precursor_material_name = str(st.session_state.get("precursor_material_name", "")).strip()
+    precursor_country = str(st.session_state.get("precursor_country", "")).strip()
+    if not precursor_material_name or not precursor_country:
+        raise ValueError("Enter the precursor material name and country of origin exactly as shown on the supplier record.")
 
     fuels = [FuelCombustionItem(
-        fuel_name="Furnace Oil", quantity=quantities["fuel"], unit="litre",
-        ncv=0.0402, ef=0.0774, oxidation_factor=1.0,
-        confidence_score=max(0.1, min(1.0, confidences["fuel"])), is_shared_utility=True,
+        fuel_name=selected_fuel, quantity=fuel_field[1], unit=fuel_field[2],
+        confidence_score=max(0.1, min(1.0, fuel_field[3])),
+        is_shared_utility=alloc["fuel_allocation_basis"] == "shared",
     )]
     electricity = ElectricityConsumptionItem(
-        source_name="State Grid / PPA", consumed_quantity=quantities["electricity"], unit="kWh",
-        grid_ef_tco2_per_mwh=0.716,
-        confidence_score=max(0.1, min(1.0, confidences["electricity"])), is_shared_utility=True,
+        source_name=selected_grid, consumed_quantity=electricity_field[1], unit=electricity_field[2],
+        confidence_score=max(0.1, min(1.0, electricity_field[3])),
+        is_shared_utility=alloc["electricity_allocation_basis"] == "shared",
     )
+    supplier_see = precursor_see_field[1] if precursor_see_field else None
+    if supplier_see is None:
+        raise ValueError("A supplier-declared precursor SEE is missing. Upload supplier emissions data; calculation is blocked without it.")
     precursor = PrecursorMaterialItem(
-        material_name="Steel Wire Rod", consumed_quantity=quantities["precursor"], unit="tonne",
-        embedded_see_tco2_per_tonne=1.85, source_type="supplier_actual", cn_code="7228 30",
-        confidence_score=max(0.1, min(1.0, confidences["precursor"])),
+        material_name=precursor_material_name,
+        consumed_quantity=precursor_field[1], unit=precursor_field[2],
+        embedded_see_tco2_per_tonne=supplier_see,
+        source_type="supplier_actual",
+        cn_code=precursor_code,
+        country_of_origin=precursor_country,
+        confidence_score=max(0.1, min(1.0, precursor_see_field[3] if precursor_see_field else precursor_field[3])),
+        is_fallback=False,
     )
-    target = float(alloc.get("target_production_tonnes", 500.0))
-    total = max(target, float(alloc.get("total_facility_production_tonnes", 625.0)))
+    target = float(alloc["target_production_tonnes"])
+    total = float(alloc["total_facility_production_tonnes"])
     return DeterministicCalculationRequest(
-        reporting_period_id=1,
-        cn_code=ws.get("cn_code", "7318 15 82"),
+        reporting_period_id=0,
+        cn_code=ws["cn_code"],
         production=ProductionAllocationInput(
-            target_product_family=ws.get("target_product_family", "Steel Fasteners"),
+            target_product_family=ws["target_product_family"],
             target_production_quantity=target,
             target_production_unit="tonne",
             total_facility_production_quantity=total,
@@ -90,7 +130,7 @@ def gather_effective_inputs() -> DeterministicCalculationRequest:
         fuels=fuels,
         electricity=electricity,
         precursors=[precursor],
-        apply_allocation_to_shared_energy=alloc.get("apply_allocation_to_shared_energy", True),
+        apply_allocation_to_shared_energy=alloc["apply_allocation_to_shared_energy"],
         run_monte_carlo=True,
         monte_carlo_iterations=2000,
     )
@@ -127,27 +167,60 @@ def render_dashboard_view() -> None:
     st.caption("Executive emissions summary with traceable inputs, deterministic calculations, and uncertainty ranges.")
 
     ws = st.session_state.get("workspace", {})
+    if not ws.get("company_name") or not ws.get("cn_code"):
+        st.info("Complete and save the workspace before calculating.")
+        return
+    if str(ws.get("country", "")).strip().lower() != "india":
+        st.info("The sourced grid-factor registry in this pilot covers India only. No calculation was run for this country.")
+        return
+
     heading, refresh_col = st.columns([5, 1])
     with heading:
-        st.markdown(f"**{ws.get('company_name', 'Apex Fasteners')}** · {ws.get('installation_name', 'Installation')} · CN `{ws.get('cn_code', '7318 15 82')}`")
+        st.markdown(f"**{ws['company_name']}** · {ws.get('installation_name', '')} · CN `{ws['cn_code']}`")
     with refresh_col:
         st.button("Recalculate", type="primary", use_container_width=True, key="passport_recalculate")
 
-    calc_request = gather_effective_inputs()
-    with st.expander("Calculation inputs and fallback scenario", expanded=False):
-        force_fallback = st.checkbox("Simulate missing supplier precursor SEE using a fallback default", key="force_precursor_fallback")
-        if force_fallback and calc_request.precursors:
-            item = calc_request.precursors[0]
-            item.is_fallback = True
-            item.source_type = "eu_default"
-            item.embedded_see_tco2_per_tonne = None
-            item.fallback_markup_pct = 10.0
+    with SessionLocal() as db:
+        reference = list_factors(db)
+        cn_rows = list_cn_codes(db)
+    fuel_rows = reference["fuel"]
+    grid_rows = reference["electricity"]
+    precursor_codes = [row["cn_code"] for row in cn_rows if "precursor" in row["sector"].lower()]
+    if not fuel_rows or not grid_rows:
+        st.error("Sourced emission factor reference data is unavailable. No calculation was run.")
+        return
+    st.markdown("### Reference factors")
+    fuel_names = [row["item_name"] for row in fuel_rows]
+    grid_names = [row["item_name"] for row in grid_rows]
+    factor_col1, factor_col2, factor_col3 = st.columns(3)
+    with factor_col1:
+        st.selectbox("Fuel type shown on your record", [""] + fuel_names, format_func=lambda value: value or "Select a fuel type", key="selected_fuel_factor")
+    with factor_col2:
+        st.selectbox("Electricity factor", [""] + grid_names, format_func=lambda value: value or "Select an applicable factor", key="selected_grid_factor")
+        grid = next((row for row in grid_rows if row["item_name"] == st.session_state.get("selected_grid_factor")), None)
+        if grid:
+            st.caption(f"Source: {grid['source_reference']} · {grid['ef_value']} {grid['ef_unit']}")
+    with factor_col3:
+        if not precursor_codes:
+            st.error("No sourced precursor defaults are available.")
+            return
+        st.selectbox("Precursor CN code", [""] + precursor_codes, format_func=lambda value: value or "Select the code from the supplier record", key="precursor_cn_code")
+        st.text_input("Precursor material name (from supplier record)", key="precursor_material_name", placeholder="Use the supplier's material name")
+        st.text_input("Precursor country of origin", key="precursor_country", placeholder="Country shown on supplier record")
+    st.caption("Supplier SEE must come from the supplier's actual emissions statement; the app will not substitute benchmark values.")
+
+    try:
+        calc_request = gather_effective_inputs()
+    except ValueError as exc:
+        st.info(str(exc))
+        st.caption("Upload the source documents, review extracted values, and enter production quantities before requesting a passport calculation.")
+        return
 
     calculation = None
     with st.spinner("Calculating emissions and uncertainty interval…"):
         try:
             response = requests.post(
-                f"{API_BASE_URL}/calculations/calculate?save_to_db=true",
+                f"{API_BASE_URL}/calculations/calculate?save_to_db=false",
                 json=calc_request.model_dump(), timeout=5,
             )
             if response.ok:
@@ -158,11 +231,16 @@ def render_dashboard_view() -> None:
             st.caption("Backend unavailable; calculation is running locally and will not be saved to the backend ledger.")
 
         if calculation is None:
-            calculation = calculate_product_see(calc_request).model_dump(mode="json")
+            try:
+                with SessionLocal() as db:
+                    calculation = calculate_product_see(calc_request, db=db).model_dump(mode="json")
+            except ValueError as exc:
+                st.error(f"Calculation could not be completed: {exc}")
+                return
 
     st.session_state["latest_calculation"] = calculation
     see = float(calculation["specific_embedded_emissions_see"])
-    quality = str(calculation.get("data_quality_rating", "ACTUAL_PRIMARY"))
+    quality = str(calculation.get("data_quality_rating", "UNKNOWN"))
     fallback = quality == "FALLBACK_DEFAULT"
     pill_variant = "fallback" if fallback else ("primary" if quality == "ACTUAL_PRIMARY" else "human")
     st.markdown(
@@ -218,6 +296,7 @@ def render_dashboard_view() -> None:
         "workspace": ws,
         "calculation": calculation,
         "uploaded_documents": st.session_state.get("uploaded_documents", {}),
+        "overrides": st.session_state.get("field_overrides", {}),
     }
     pdf_bytes = generate_passport_pdf(export_payload)
     csv_text = generate_passport_csv(export_payload)
