@@ -6,7 +6,7 @@ from html import escape
 import requests
 import streamlit as st
 
-from frontend.ui import inject_custom_css, status_pill
+from frontend.ui import empty_state, page_header, status_pill
 
 API_BASE_URL = "http://localhost:8000/api/v1"
 
@@ -21,14 +21,17 @@ def _confidence_label(score: float) -> tuple[str, str]:
 
 
 def render_review_view() -> None:
-    inject_custom_css()
-    st.title("Extraction review")
-    st.caption("Inspect each candidate against its source evidence. Corrections are recorded with the reviewer and justification.")
+    page_header(
+        "Step 3 of 5",
+        "Review extracted values",
+        "Inspect each candidate against its source evidence. Corrections are recorded with the reviewer and justification.",
+    )
 
     docs = st.session_state.get("uploaded_documents", {})
     if not docs:
-        st.info("No documents are available yet. Upload a source record to begin review.")
+        empty_state("🔍", "Nothing to review yet", "Upload a source record in step 2 to begin review.")
         return
+    st.session_state["review_visited"] = True
 
     overrides = st.session_state.setdefault("field_overrides", {})
     doc_options = {

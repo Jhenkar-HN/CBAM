@@ -34,6 +34,16 @@ type NavUserProps = {
   }
 }
 
+function initials(name: string) {
+  const letters = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('')
+  return letters || 'U'
+}
+
 export function NavUser({ user }: NavUserProps) {
   const { isMobile } = useSidebar()
   const [open, setOpen] = useDialogState()
@@ -50,7 +60,7 @@ export function NavUser({ user }: NavUserProps) {
               >
                 <Avatar className='h-8 w-8 rounded-lg'>
                   <AvatarImage src={user.avatar} alt={user.name} />
-                  <AvatarFallback className='rounded-lg'>PM</AvatarFallback>
+                  <AvatarFallback className='rounded-lg bg-primary/15 font-semibold text-primary'>{initials(user.name)}</AvatarFallback>
                 </Avatar>
                 <div className='grid flex-1 text-start text-sm leading-tight'>
                   <span className='truncate font-semibold'>{user.name}</span>
@@ -69,7 +79,7 @@ export function NavUser({ user }: NavUserProps) {
                 <div className='flex items-center gap-2 px-1 py-1.5 text-start text-sm'>
                   <Avatar className='h-8 w-8 rounded-lg'>
                     <AvatarImage src={user.avatar} alt={user.name} />
-                    <AvatarFallback className='rounded-lg'>PM</AvatarFallback>
+                    <AvatarFallback className='rounded-lg bg-primary/15 font-semibold text-primary'>{initials(user.name)}</AvatarFallback>
                   </Avatar>
                   <div className='grid flex-1 text-start text-sm leading-tight'>
                     <span className='truncate font-semibold'>{user.name}</span>

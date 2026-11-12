@@ -1,33 +1,40 @@
 """Multi-Format Upload & Ingestion View."""
 
+import pandas as pd
 import requests
 import streamlit as st
 from app.modules.document_ai.extractor import run_document_ai_extraction
+from frontend.ui import empty_state, page_header
 
 API_BASE_URL = "http://localhost:8000/api/v1"
 
 
 def render_upload_view():
-    st.subheader("📤 Document Ingestion & Cryptographic Ledger")
-    st.caption("Upload factory invoices, power bills, mill certificates, and weighbridge logs. Each document is cryptographically hashed with SHA-256.")
+    page_header(
+        "Step 2 of 5",
+        "Upload source records",
+        "Upload factory invoices, power bills, mill certificates, and weighbridge logs. "
+        "Each file is fingerprinted with SHA-256 so every number can be traced back to its source.",
+    )
 
     if "uploaded_documents" not in st.session_state:
         st.session_state["uploaded_documents"] = {}
 
     workspace = st.session_state.get("workspace")
     if not workspace:
-        st.info("Save the actual company and installation details before uploading records.")
+        empty_state("🏭", "Workspace not set up yet", "Save the company and installation details in step 1 before uploading records.")
         return
 
     # File uploader
     uploaded_files = st.file_uploader(
-        "Choose raw business records (PDF, Scanned Image, CSV, Excel)",
+        "Business records · PDF, scanned image, CSV or Excel",
         type=["pdf", "png", "jpg", "jpeg", "csv", "xlsx", "xls"],
         accept_multiple_files=True,
     )
 
     # Ingestion button
     if uploaded_files:
+        ingested_new = False
         for file_obj in uploaded_files:
             file_bytes = file_obj.getvalue()
             filename = file_obj.name
@@ -67,34 +74,41 @@ def render_upload_view():
                         "extracted_fields": extraction_data.get("extracted_fields", []),
                     }
                     st.toast(f"Parsed {filename}", icon="✅")
+                    ingested_new = True
+        if ingested_new:
+            # Rerun so the sidebar counter and step checkmarks reflect the new ledger entries.
+            st.rerun()
 
     # Ingestion Manifest / Ledger Table
     docs = st.session_state["uploaded_documents"]
     if docs:
-        st.markdown("### 📋 Cryptographic Document Ledger (SHA-256)")
+        total_fields = sum(len(doc["extracted_fields"]) for doc in docs.values())
+        st.markdown("### Document ledger")
+        summary = st.columns(3)
+        summary[0].metric("Documents", len(docs))
+        summary[1].metric("Candidate fields", total_fields)
+        summary[2].metric("Total size", f"{sum(doc['file_size_bytes'] for doc in docs.values()) / 1024:,.1f} KB")
         for doc_hash, doc in docs.items():
-            with st.expander(f"📄 {doc['filename']} ({doc['file_size_bytes'] / 1024:.1f} KB)", expanded=True):
-                meta_col1, meta_col2 = st.columns([3, 1])
-                with meta_col1:
-                    st.code(f"SHA-256: {doc['document_hash']}", language="bash")
-                with meta_col2:
-                    st.metric("Candidate Fields", len(doc["extracted_fields"]))
+            with st.expander(f"📄 {doc['filename']} · {doc['file_size_bytes'] / 1024:.1f} KB · {len(doc['extracted_fields'])} fields", expanded=len(docs) == 1):
+                st.markdown('<div class="meta-label">SHA-256 fingerprint</div>', unsafe_allow_html=True)
+                st.code(doc["document_hash"], language=None)
 
                 if doc["extracted_fields"]:
-                    st.markdown("**Extracted Candidates:**")
+                    st.markdown('<div class="meta-label">Extracted candidates</div>', unsafe_allow_html=True)
                     table_rows = []
                     for f in doc["extracted_fields"]:
                         table_rows.append({
                             "Field Name": f["field_name"],
-                            "Quantity": f["extracted_value"],
+                            "Quantity": f"{float(f['extracted_value']):,.4f}".rstrip("0").rstrip("."),
                             "Unit": f["unit"],
                             "Confidence": f"{f['confidence_score'] * 100:.0f}%",
                             "Page": f["evidence_page"],
                             "Verbatim Snippet": f["evidence_snippet"],
                         })
-                    st.dataframe(table_rows, use_container_width=True)
+                    st.table(pd.DataFrame(table_rows).style.hide(axis="index"))
                 else:
                     st.info("No numerical activity candidates identified in this file.")
+        st.caption("Next: check each extracted value against its evidence in step 3.")
 
     else:
-        st.info("No documents uploaded yet. Upload your factory electricity bills, fuel receipts, or production sheets above.")
+        empty_state("📄", "No documents yet", "Drop your factory electricity bills, fuel receipts, supplier certificates, or production sheets above.")

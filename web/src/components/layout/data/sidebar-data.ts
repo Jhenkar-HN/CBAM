@@ -20,7 +20,7 @@ export const sidebarData: SidebarData = {
   user: {
     name: 'Workspace user',
     email: '',
-    avatar: '/avatars/shadcn.jpg',
+    avatar: '',
   },
   teams: [
     {

@@ -141,8 +141,8 @@ export function WorkspacePage() {
                     update('target_product_family', value)
                   }
                 >
-                  <SelectTrigger>
-                    <SelectValue />
+                  <SelectTrigger className='w-full'>
+                    <SelectValue placeholder='Select the product family' />
                   </SelectTrigger>
                   <SelectContent>
                     {PRODUCT_FAMILIES.map((family) => (
@@ -159,7 +159,7 @@ export function WorkspacePage() {
                   value={form.cn_code}
                   onValueChange={(value) => update('cn_code', value)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className='w-full'>
                     <SelectValue placeholder='Select the actual product CN code' />
                   </SelectTrigger>
                   <SelectContent>
@@ -177,7 +177,7 @@ export function WorkspacePage() {
                   value={form.fuel_name}
                   onValueChange={(value) => update('fuel_name', value)}
                 >
-                  <SelectTrigger><SelectValue placeholder='Select the recorded fuel type' /></SelectTrigger>
+                  <SelectTrigger className='w-full'><SelectValue placeholder='Select the recorded fuel type' /></SelectTrigger>
                   <SelectContent>
                     {['Furnace Oil', 'Diesel (HSD)', 'Natural Gas', 'LPG'].map((fuel) => (
                       <SelectItem key={fuel} value={fuel}>{fuel}</SelectItem>
